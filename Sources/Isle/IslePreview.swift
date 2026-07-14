@@ -123,6 +123,77 @@ final class IslePreviewHost: UIViewController {
     }
 }
 
+/// Preview harness for the camera panel. It intentionally skips starting an
+/// `AVCaptureSession`, so the canvas can render the rounded camera surface
+/// without hardware access or permission prompts.
+final class IsleCameraPreviewHost: UIViewController {
+
+    private var isCameraVisible = false
+    override var prefersStatusBarHidden: Bool { isCameraVisible }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        let backdrop = HostingView(customView: DemoFeedView())
+        backdrop.frame = view.bounds
+        backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(backdrop)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        presentCamera()
+    }
+
+    private func presentCamera() {
+        let topInset = view.safeAreaInsets.top
+        var camera: IsleCameraView!
+        camera = IsleCameraView(
+            configuration: .init(),
+            topSafeAreaInset: topInset,
+            configuresSession: false,
+            onCapture: { _ in },
+            onDismiss: { [weak self] in
+                guard let self else { return }
+                camera.animateOut {
+                    camera.removeFromSuperview()
+                    self.isCameraVisible = false
+                    UIView.animate(withDuration: 0.2) {
+                        self.setNeedsStatusBarAppearanceUpdate()
+                    }
+                }
+            },
+            onError: { _ in }
+        )
+        view.addSubview(camera)
+        NSLayoutConstraint.activate([
+            camera.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            camera.topAnchor.constraint(
+                equalTo: view.topAnchor,
+                constant: Isle.Metrics.shapeTopOffset(topSafeAreaInset: topInset)),
+            camera.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Isle.Metrics.sideInset),
+            camera.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -Isle.Metrics.sideInset),
+            camera.heightAnchor.constraint(equalToConstant: Isle.Metrics.cameraHeight(for: view.bounds.height))
+        ])
+        view.layoutIfNeeded()
+
+        let gradient = CAGradientLayer()
+        gradient.colors = [
+            UIColor(red: 0.10, green: 0.12, blue: 0.14, alpha: 1).cgColor,
+            UIColor(red: 0.24, green: 0.29, blue: 0.31, alpha: 1).cgColor
+        ]
+        gradient.startPoint = CGPoint(x: 0.15, y: 0)
+        gradient.endPoint = CGPoint(x: 0.85, y: 1)
+        gradient.frame = camera.bounds
+        camera.layer.insertSublayer(gradient, at: 0)
+
+        camera.prepareForPresentation()
+        camera.animateIn()
+
+        isCameraVisible = true
+        UIView.animate(withDuration: 0.3) { self.setNeedsStatusBarAppearanceUpdate() }
+    }
+}
+
 @available(iOS 17.0, *)
 #Preview("Expanded — AirPods") {
     IslePreviewHost(configuration: .init(
@@ -178,6 +249,25 @@ final class IslePreviewHost: UIViewController {
         content: .init(centerView: swiftUICenter),
         autoDismissAfter: nil))
 }
+
+@available(iOS 17.0, *)
+#Preview("Confirmation — Camera Access") {
+    let confirmation = Isle.makeConfirmationView(
+        title: "Camera Access",
+        message: "Allow Isle to open the camera?",
+        confirmTitle: "OK",
+        cancelTitle: "Cancel",
+        onConfirm: {},
+        onCancel: {}
+    )
+    IslePreviewHost(configuration: .init(
+        presentation: .expanded,
+        content: .init(centerView: confirmation),
+        autoDismissAfter: nil))
+}
+
+@available(iOS 17.0, *)
+#Preview("Camera") { IsleCameraPreviewHost() }
 
 @available(iOS 17.0, *)
 #Preview("SwiftUI — tap a cell") { DemoFeedView() }

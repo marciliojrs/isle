@@ -1,11 +1,11 @@
 # Isle
 
 <p align="center">
-  <img src="isle.png" width="128" alt="Isle app icon">
+  <img src="isle.png" width="256" alt="Isle app icon">
 </p>
 
 <p align="center">
-  In-app notifications styled like the iPhone Dynamic Island.
+  Dynamic-Island-inspired top overlays for notifications, confirmations, and camera capture.
 </p>
 
 <p align="center">
@@ -17,25 +17,28 @@
   <img alt="Version" src="https://img.shields.io/github/v/tag/marciliojrs/isle?label=tag">
 </p>
 
-Isle draws a fake, in-app Dynamic-Island-styled notification overlay on top of your app's own content. It is **not** an ActivityKit Live Activity: it needs no widget extension, no entitlements, and works purely in the foreground on any iPhone, whether it has an island, a notch, or a flat top.
+Isle draws foreground-only, Dynamic-Island-inspired overlays on top of your app's own content. Use it for tactile notifications, lightweight confirmation prompts, and a compact top camera panel without building a widget extension or adopting ActivityKit. It works on any iPhone, whether it has an island, a notch, or a flat top.
 
-> **Not affiliated with Apple.** "Dynamic Island" is a trademark of Apple Inc. Isle merely mimics its visual language for in-app notifications; it does not use, extend, or depend on ActivityKit or any private API.
+> **Not affiliated with Apple.** "Dynamic Island" is a trademark of Apple Inc. Isle mimics parts of its visual language for in-app overlays; it does not use, extend, or depend on ActivityKit or any private API.
 
 ## Why Isle?
 
-Use Isle when you want a focused, tactile notification that feels at home on modern iOS without adding infrastructure:
+Use Isle when you want focused, tactile top-of-screen experiences that feel at home on modern iOS without adding infrastructure:
 
-- Foreground-only notifications for UIKit and SwiftUI apps
-- Dynamic-Island-inspired layout without ActivityKit or private API
+- Foreground-only overlays for UIKit and SwiftUI apps
+- Dynamic-Island-inspired layout and animation without ActivityKit or private API
 - Device-aware geometry for island, notch, and flat-top devices
+- Notifications, confirmation prompts, and camera capture from the top overlay
 - Custom `UIView` slots, plus SwiftUI support through `HostingView`
 - No third-party dependencies
 
 ## Features
 
-- Three presentations: `expanded`, `compactWrap`, and `compactPill`
-- Grow-from-the-island animation on present and dismiss
-- Status bar hiding while a notification is visible
+- Notification presentations: `expanded`, `compactWrap`, and `compactPill`
+- Confirmation prompts with OK and Cancel actions
+- Top camera panel with permission confirmation, capture callback, and SwiftUI binding support
+- Device-aware present/dismiss animations for Dynamic Island, notch, and flat-top devices
+- Status bar hiding while an overlay is visible
 - Auto-dismiss on a timer, swipe-to-dismiss, or programmatic dismissal via `IsleToken`
 - Built-in connection issue preset
 - UIKit-first API with declarative SwiftUI modifiers
@@ -199,6 +202,64 @@ IsleNotificationCenter.shared.dismiss()
 ```
 
 Notifications auto-dismiss after `Configuration.autoDismissAfter` seconds. The default is `3`; pass `nil` to keep the notification visible until dismissed. Swipe-up-to-dismiss is enabled by default through `allowsSwipeToDismiss`.
+
+## Confirmation Prompts
+
+Use `showConfirmation` for short, permission-style prompts that should appear from
+the island with explicit OK and Cancel actions:
+
+```swift
+IsleNotificationCenter.shared.showConfirmation(
+    title: "Camera Access",
+    message: "Allow Isle to open the camera?",
+    confirmTitle: "OK",
+    cancelTitle: "Cancel",
+    onConfirm: {
+        // Request camera permission or continue with the camera flow.
+    },
+    onCancel: {
+        // Keep the current screen unchanged.
+    }
+)
+```
+
+## Camera
+
+Use `IsleCameraCenter` to open a top camera panel from the island. Isle shows its
+own OK/Cancel confirmation before the first system camera permission request:
+
+```swift
+IsleCameraCenter.shared.showCamera { image in
+    // Use the captured UIImage.
+} onError: { error in
+    // Handle denied permission or camera setup failures.
+}
+```
+
+SwiftUI apps can bind camera presentation to state:
+
+```swift
+struct ContentView: View {
+    @State private var showCamera = false
+    @State private var capturedImage: UIImage?
+
+    var body: some View {
+        Button("Open Camera") {
+            showCamera = true
+        }
+        .isleCamera(isPresented: $showCamera) { image in
+            capturedImage = image
+        }
+    }
+}
+```
+
+Host apps must include `NSCameraUsageDescription` in their Info.plist before using
+the camera API.
+
+While the camera panel is visible, Isle hides the status bar and plays haptics on
+presentation and shutter tap by default. Pass `haptic: nil` or `captureHaptic: nil`
+in `Isle.CameraConfiguration` to disable either feedback.
 
 ## SwiftUI
 

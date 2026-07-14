@@ -97,6 +97,40 @@ public enum Isle {
             self.haptic = haptic
         }
     }
+
+    /// Everything needed to present Isle's camera overlay.
+    public struct CameraConfiguration: Sendable {
+        public var permissionTitle: String
+        public var permissionMessage: String?
+        public var permissionConfirmTitle: String
+        public var permissionCancelTitle: String
+        public var allowsSwipeToDismiss: Bool
+        public var dismissesAfterCapture: Bool
+        /// Impact haptic played when the camera panel is presented. `nil` plays no haptic.
+        public var haptic: UIImpactFeedbackGenerator.FeedbackStyle?
+        /// Impact haptic played when the shutter button is tapped. `nil` plays no haptic.
+        public var captureHaptic: UIImpactFeedbackGenerator.FeedbackStyle?
+
+        public init(
+            permissionTitle: String = "Camera Access",
+            permissionMessage: String? = "Allow Isle to open the camera?",
+            permissionConfirmTitle: String = "OK",
+            permissionCancelTitle: String = "Cancel",
+            allowsSwipeToDismiss: Bool = true,
+            dismissesAfterCapture: Bool = true,
+            haptic: UIImpactFeedbackGenerator.FeedbackStyle? = .soft,
+            captureHaptic: UIImpactFeedbackGenerator.FeedbackStyle? = .medium
+        ) {
+            self.permissionTitle = permissionTitle
+            self.permissionMessage = permissionMessage
+            self.permissionConfirmTitle = permissionConfirmTitle
+            self.permissionCancelTitle = permissionCancelTitle
+            self.allowsSwipeToDismiss = allowsSwipeToDismiss
+            self.dismissesAfterCapture = dismissesAfterCapture
+            self.haptic = haptic
+            self.captureHaptic = captureHaptic
+        }
+    }
 }
 
 // MARK: - Presets
@@ -141,6 +175,9 @@ extension Isle {
 
         static let expandedCornerRadius: CGFloat = 28
         static let compactCornerRadius: CGFloat = islandHeight / 2  // 18.5
+        /// Matches the modern iPhone display corner radius closely enough for an
+        /// overlay that attaches to the device edge.
+        static let cameraCornerRadius: CGFloat = 39
         static let sideInset: CGFloat = 12
         static let contentInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
 
@@ -191,6 +228,10 @@ extension Isle {
             case .dynamicIsland: return islandHeight
             case .notch, .none: return notchHeight
             }
+        }
+
+        static func cameraHeight(for windowHeight: CGFloat) -> CGFloat {
+            max(320, windowHeight * 0.5)
         }
     }
 }

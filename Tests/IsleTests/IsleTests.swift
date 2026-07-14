@@ -35,6 +35,18 @@ struct IsleConfigurationTests {
         #expect(config.content.leadingImageTintColor == IsleColors.critical)
         #expect(config.content.leadingImage != nil)
     }
+
+    @Test("Camera configuration defaults are permission-first and dismiss after capture")
+    func cameraConfigurationDefaults() {
+        let config = Isle.CameraConfiguration()
+        #expect(config.permissionTitle == "Camera Access")
+        #expect(config.permissionConfirmTitle == "OK")
+        #expect(config.permissionCancelTitle == "Cancel")
+        #expect(config.allowsSwipeToDismiss == true)
+        #expect(config.dismissesAfterCapture == true)
+        #expect(config.haptic == .soft)
+        #expect(config.captureHaptic == .medium)
+    }
 }
 
 @Suite("Isle — Metrics")
@@ -51,6 +63,12 @@ struct IsleMetricsTests {
         #expect(Isle.Metrics.hasDynamicIsland(topSafeAreaInset: 50) == false)
         #expect(Isle.Metrics.hasDynamicIsland(topSafeAreaInset: 47) == false)
         #expect(Isle.Metrics.hasDynamicIsland(topSafeAreaInset: 20) == false)
+    }
+
+    @Test("Camera height is half the window with a practical minimum")
+    func cameraHeight() {
+        #expect(Isle.Metrics.cameraHeight(for: 800) == 400)
+        #expect(Isle.Metrics.cameraHeight(for: 500) == 320)
     }
 }
 
@@ -143,6 +161,189 @@ struct IsleViewTests {
             topSafeAreaInset: 59)
         #expect(contains(view, leading))
         #expect(contains(view, trailing))
+    }
+
+    @Test("Compact wrap stays snug on Dynamic Island devices")
+    func compactWrapSnugOnDynamicIsland() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    leadingImage: UIImage(systemName: "timer"),
+                    title: "0:12",
+                    trailingAccessory: .text("REC")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+        let size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        #expect(size.width < 320)
+    }
+
+    @Test("Compact wrap trailing content is fixed to the trailing edge")
+    func compactWrapTrailingContentAlignsWithTrailingEdge() {
+        let trailing = UILabel()
+        trailing.text = "REC"
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    leadingImage: UIImage(systemName: "timer"),
+                    title: "0:12",
+                    trailingView: trailing
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+
+        let size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        view.frame = CGRect(origin: .zero, size: size)
+        view.layoutIfNeeded()
+
+        let expectedTrailing = size.width - Isle.Metrics.contentInsets.right
+        #expect(abs(trailing.frame.maxX - expectedTrailing) < 0.5)
+    }
+}
+
+@MainActor
+@Suite("Isle — confirmation")
+struct IsleConfirmationTests {
+
+    private func allSubviews(of root: UIView) -> [UIView] {
+        root.subviews + root.subviews.flatMap(allSubviews)
+    }
+
+    @Test("Confirmation view includes confirm and cancel buttons")
+    func confirmationButtons() {
+        let view = Isle.makeConfirmationView(
+            title: "Camera Access",
+            message: "Allow Isle to use the camera?",
+            confirmTitle: "OK",
+            cancelTitle: "Cancel",
+            onConfirm: {},
+            onCancel: {}
+        )
+        let buttons = allSubviews(of: view).compactMap { $0 as? UIButton }
+        #expect(buttons.count == 2)
+        #expect(buttons.contains { $0.accessibilityLabel == "OK" })
+        #expect(buttons.contains { $0.accessibilityLabel == "Cancel" })
+    }
+
+    @Test("Confirmation buttons invoke their actions")
+    func confirmationButtonActions() {
+        var didConfirm = false
+        var didCancel = false
+        let view = Isle.makeConfirmationView(
+            title: "Camera Access",
+            message: "Allow Isle to use the camera?",
+            confirmTitle: "OK",
+            cancelTitle: "Cancel",
+            onConfirm: { didConfirm = true },
+            onCancel: { didCancel = true }
+        )
+        let buttons = allSubviews(of: view).compactMap { $0 as? UIButton }
+
+        buttons.first { $0.accessibilityLabel == "OK" }?.sendActions(for: .touchUpInside)
+        buttons.first { $0.accessibilityLabel == "Cancel" }?.sendActions(for: .touchUpInside)
+
+        #expect(didConfirm)
+        #expect(didCancel)
+    }
+
+    @Test("Confirmation message label is hidden when message is nil")
+    func confirmationWithoutMessage() {
+        let view = Isle.makeConfirmationView(
+            title: "Camera Access",
+            message: nil,
+            confirmTitle: "OK",
+            cancelTitle: "Cancel",
+            onConfirm: {},
+            onCancel: {}
+        )
+        let labels = allSubviews(of: view).compactMap { $0 as? UILabel }
+        #expect(labels.contains { $0.text == "Camera Access" })
+        #expect(labels.contains { $0.text == nil && $0.isHidden })
+    }
+}
+
+@MainActor
+@Suite("IsleCameraView — appearance")
+struct IsleCameraViewTests {
+
+    private func allSubviews(of root: UIView) -> [UIView] {
+        root.subviews + root.subviews.flatMap(allSubviews)
+    }
+
+    private func makeView() -> IsleCameraView {
+        IsleCameraView(
+            configuration: .init(),
+            topSafeAreaInset: 59,
+            configuresSession: false,
+            onCapture: { _ in },
+            onDismiss: {},
+            onError: { _ in }
+        )
+    }
+
+    @Test("Camera view uses camera corner radius and black background")
+    func cameraContainerAppearance() {
+        let view = makeView()
+        #expect(view.layer.cornerRadius == Isle.Metrics.cameraCornerRadius)
+        #expect(view.backgroundColor == IsleColors.background)
+    }
+
+    @Test("Camera view rounds all corners on Dynamic Island devices")
+    func cameraIslandCorners() {
+        let view = IsleCameraView(
+            configuration: .init(),
+            topSafeAreaInset: 59,
+            configuresSession: false,
+            onCapture: { _ in },
+            onDismiss: {},
+            onError: { _ in }
+        )
+        #expect(view.layer.maskedCorners == [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+    }
+
+    @Test("Camera view rounds only bottom corners on notch devices")
+    func cameraNotchCorners() {
+        let view = IsleCameraView(
+            configuration: .init(),
+            topSafeAreaInset: 47,
+            configuresSession: false,
+            onCapture: { _ in },
+            onDismiss: {},
+            onError: { _ in }
+        )
+        #expect(view.layer.maskedCorners == [.layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+    }
+
+    @Test("Camera view includes shutter and close buttons")
+    func cameraControls() {
+        let view = makeView()
+        let buttons = allSubviews(of: view).compactMap { $0 as? UIButton }
+        #expect(buttons.contains { $0.accessibilityLabel == "Take Photo" })
+        #expect(buttons.contains { $0.accessibilityLabel == "Close Camera" })
+    }
+
+    @Test("Camera close button invokes dismiss")
+    func closeButtonDismisses() {
+        var didDismiss = false
+        let view = IsleCameraView(
+            configuration: .init(),
+            topSafeAreaInset: 59,
+            configuresSession: false,
+            onCapture: { _ in },
+            onDismiss: { didDismiss = true },
+            onError: { _ in }
+        )
+        let closeButton = allSubviews(of: view)
+            .compactMap { $0 as? UIButton }
+            .first { $0.accessibilityLabel == "Close Camera" }
+
+        closeButton?.sendActions(for: .touchUpInside)
+
+        #expect(didDismiss)
     }
 }
 #endif

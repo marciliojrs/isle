@@ -104,6 +104,47 @@ public final class IsleNotificationCenter {
         dismiss(ifPresentationID: presentationID)
     }
 
+    /// Presents a confirmation prompt using the same Isle overlay lifecycle as
+    /// notifications. The prompt stays visible until the user taps one of the
+    /// actions, swipes it away, or it is dismissed programmatically.
+    @discardableResult
+    public func showConfirmation(
+        title: String,
+        message: String? = nil,
+        confirmTitle: String = "OK",
+        cancelTitle: String = "Cancel",
+        haptic: UIImpactFeedbackGenerator.FeedbackStyle? = .soft,
+        onConfirm: @escaping () -> Void,
+        onCancel: (() -> Void)? = nil
+    ) -> IsleToken {
+        var token: IsleToken?
+        let confirmationView = Isle.makeConfirmationView(
+            title: title,
+            message: message,
+            confirmTitle: confirmTitle,
+            cancelTitle: cancelTitle,
+            onConfirm: {
+                onConfirm()
+                token?.dismiss()
+            },
+            onCancel: {
+                onCancel?()
+                token?.dismiss()
+            }
+        )
+
+        let configuration = Isle.Configuration(
+            presentation: .expanded,
+            content: Isle.Content(centerView: confirmationView),
+            autoDismissAfter: nil,
+            allowsSwipeToDismiss: true,
+            haptic: haptic
+        )
+        let presentedToken = show(configuration)
+        token = presentedToken
+        return presentedToken
+    }
+
     // MARK: - Private
 
     private func dismiss(ifPresentationID id: Int) {

@@ -158,6 +158,7 @@ public final class IsleView: UIView {
     private func buildCompactWrap() {
         let insets = Isle.Metrics.contentInsets
         let halfGap = Isle.Metrics.cutoutWidth(topSafeAreaInset: topSafeAreaInset) / 2
+        let usesSnugIslandWidth = Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .dynamicIsland
 
         // Leading content sits to the LEFT of a gap centered on the island; trailing
         // content to the RIGHT. The gap is defined relative to the view's centerX (which
@@ -183,15 +184,21 @@ public final class IsleView: UIView {
         var constraints: [NSLayoutConstraint] = [
             leading.centerYAnchor.constraint(equalTo: centerYAnchor),
             leading.trailingAnchor.constraint(equalTo: centerXAnchor, constant: -halfGap),
-            leading.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: insets.left),
             heightAnchor.constraint(equalToConstant: Isle.Metrics.cutoutHeight(topSafeAreaInset: topSafeAreaInset) + 10)
         ]
+        constraints.append(
+            usesSnugIslandWidth
+                ? leading.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insets.left)
+                : leading.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: insets.left)
+        )
         if let trailingView {
             constraints += [
                 trailingView.centerYAnchor.constraint(equalTo: centerYAnchor),
                 trailingView.leadingAnchor.constraint(greaterThanOrEqualTo: centerXAnchor, constant: halfGap),
                 trailingView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -insets.right)
             ]
+        } else if usesSnugIslandWidth {
+            constraints.append(trailingAnchor.constraint(equalTo: centerXAnchor, constant: halfGap + insets.right))
         }
         NSLayoutConstraint.activate(constraints)
     }
@@ -321,12 +328,26 @@ public final class IsleView: UIView {
 
     /// Sets the pre-present state: collapsed into the island, invisible.
     public func prepareForPresentation() {
+        if Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .dynamicIsland {
+            setLayerAnchorPoint(CGPoint(x: 0.5, y: 0.5))
+        } else {
+            setLayerAnchorPoint(CGPoint(x: 0.5, y: 0))
+        }
         alpha = 0
         transform = collapsedTransform
     }
 
     /// Springs the notification open, growing downward out of the island.
     public func animateIn() {
+        switch Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) {
+        case .dynamicIsland:
+            animateIslandIn()
+        case .notch, .none:
+            animateTopSlideIn()
+        }
+    }
+
+    private func animateIslandIn() {
         UIView.animate(
             withDuration: 0.6,
             delay: 0,
@@ -336,6 +357,35 @@ public final class IsleView: UIView {
         ) {
             self.alpha = 1
             self.transform = .identity
+        }
+    }
+
+    private func animateTopSlideIn() {
+        UIView.animate(
+            withDuration: 0.34,
+            delay: 0,
+            options: [.curveEaseOut]
+        ) {
+            self.alpha = 1
+            self.transform = .identity
+        } completion: { _ in
+            // Top-anchored scale makes only the lower edge snap, avoiding a full
+            // island-style bounce on notch devices where the top edge is fixed.
+            UIView.animate(
+                withDuration: 0.11,
+                delay: 0,
+                options: [.curveEaseOut]
+            ) {
+                self.transform = CGAffineTransform(scaleX: 1, y: 1.018)
+            } completion: { _ in
+                UIView.animate(
+                    withDuration: 0.13,
+                    delay: 0,
+                    options: [.curveEaseInOut]
+                ) {
+                    self.transform = .identity
+                }
+            }
         }
     }
 
@@ -351,6 +401,17 @@ public final class IsleView: UIView {
         } completion: { _ in
             completion()
         }
+    }
+
+    private func setLayerAnchorPoint(_ anchorPoint: CGPoint) {
+        guard layer.anchorPoint != anchorPoint else { return }
+        let oldOrigin = frame.origin
+        layer.anchorPoint = anchorPoint
+        let newOrigin = frame.origin
+        layer.position = CGPoint(
+            x: layer.position.x - newOrigin.x + oldOrigin.x,
+            y: layer.position.y - newOrigin.y + oldOrigin.y
+        )
     }
 }
 #endif
