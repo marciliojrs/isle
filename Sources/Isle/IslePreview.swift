@@ -1,0 +1,185 @@
+#if os(iOS)
+#if DEBUG
+import UIKit
+import SwiftUI
+
+/// A lightweight social-feed mock used as a backdrop for previews and README
+/// screenshots, so the notification is judged over realistic app content instead
+/// of flat grey. It is a real `List`: tapping a row presents an Isle notification
+/// via the package's own `.isleNotification(item:)` modifier. Self-contained —
+/// owns its selection state and starts with no notification shown.
+@available(iOS 15.0, *)
+struct DemoFeedView: View {
+    fileprivate struct Post: Identifiable {
+        let id = UUID(); let name: String; let handle: String; let body: String; let color: Color
+    }
+    private let posts: [Post] = [
+        .init(name: "Sarah Chen", handle: "@sarahc", body: "Just shipped a huge update 🚀 so proud of the team", color: .blue),
+        .init(name: "Dev Weekly", handle: "@devweekly", body: "This week: Swift concurrency, SwiftUI tips, and more", color: .purple),
+        .init(name: "Maya Patel", handle: "@mayap", body: "Coffee + code = perfect Sunday morning ☕️", color: .orange),
+        .init(name: "TechCrunch", handle: "@techcrunch", body: "Apple announces new accessibility features for iOS", color: .green),
+        .init(name: "Alex Rivera", handle: "@arivera", body: "Anyone else obsessed with the Dynamic Island? 😍", color: .pink),
+        .init(name: "Jordan Lee", handle: "@jlee", body: "New post: building delightful iOS animations", color: .teal),
+    ]
+    @State private var tapped: Post?
+
+    var body: some View {
+        List {
+            ForEach(posts) { post in
+                HStack(alignment: .top, spacing: 12) {
+                    Circle().fill(post.color).frame(width: 44, height: 44)
+                        .overlay(Text(String(post.name.prefix(1))).font(.headline).foregroundColor(.white))
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 5) {
+                            Text(post.name).font(.subheadline.bold())
+                            Text(post.handle).font(.subheadline).foregroundColor(.secondary)
+                        }
+                        Text(post.body).font(.subheadline)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { tapped = post }
+                .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+            }
+        }
+        .listStyle(.plain)
+        .isleNotification(item: $tapped) { post in
+            Isle.Configuration(
+                presentation: .expanded,
+                content: .init(
+                    leadingImage: UIImage(systemName: "heart.fill"),
+                    leadingImageTintColor: .systemPink,
+                    title: post.name,
+                    subtitle: "liked your post",
+                    trailingAccessory: .text(post.handle)),
+                autoDismissAfter: 2.5)
+        }
+    }
+}
+
+/// Debug-only harness for iterating on the notification's look and its
+/// present/dismiss animation in the Xcode canvas. It draws a faux physical
+/// Dynamic Island behind the notification so compact placements can be judged
+/// in context, and loops the spring in/out so the animation is visible on
+/// repeat. Not compiled for release.
+final class IslePreviewHost: UIViewController {
+
+    private let configuration: Isle.Configuration
+
+    init(configuration: Isle.Configuration) {
+        self.configuration = configuration
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private var isNotificationVisible = false
+    override var prefersStatusBarHidden: Bool { isNotificationVisible }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        let backdrop = HostingView(customView: DemoFeedView())
+        backdrop.frame = view.bounds
+        backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(backdrop)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        presentNotification()
+    }
+
+    /// Places the notification exactly as `IsleNotificationCenter` does
+    /// (top pinned at the island so the shape contains it) and runs the present
+    /// animation once. Refresh the canvas to replay.
+    private func presentNotification() {
+        // Read the canvas device's real safe area so the preview respects notch (top
+        // inset 0) vs island (top inset 11) — matching what the app's Center does.
+        let topInset = view.safeAreaInsets.top
+        let notification = IsleView(configuration: configuration, topSafeAreaInset: topInset)
+        view.addSubview(notification)
+        NSLayoutConstraint.activate([
+            notification.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            notification.topAnchor.constraint(
+                equalTo: view.topAnchor,
+                constant: Isle.Metrics.shapeTopOffset(topSafeAreaInset: topInset)),
+            notification.leadingAnchor.constraint(
+                greaterThanOrEqualTo: view.leadingAnchor,
+                constant: Isle.Metrics.sideInset),
+            notification.trailingAnchor.constraint(
+                lessThanOrEqualTo: view.trailingAnchor,
+                constant: -Isle.Metrics.sideInset)
+        ])
+        view.layoutIfNeeded()
+
+        notification.prepareForPresentation()
+        notification.animateIn()
+
+        // Hide the status bar (time/battery) while the notification is up.
+        isNotificationVisible = true
+        UIView.animate(withDuration: 0.3) { self.setNeedsStatusBarAppearanceUpdate() }
+    }
+}
+
+@available(iOS 17.0, *)
+#Preview("Expanded — AirPods") {
+    IslePreviewHost(configuration: .init(
+        presentation: .expanded,
+        content: .init(
+            leadingImage: UIImage(systemName: "airpodspro"),
+            leadingImageTintColor: IsleColors.onBackground,
+            title: "AirPods Pro",
+            subtitle: "Connected",
+            trailingAccessory: .text("82%")
+        ),
+        autoDismissAfter: nil))
+}
+
+@available(iOS 17.0, *)
+#Preview("Compact Pill — Silent") {
+    IslePreviewHost(configuration: .init(
+        presentation: .compactPill,
+        content: .init(
+            leadingImage: UIImage(systemName: "bell.slash.fill"),
+            leadingImageTintColor: IsleColors.onBackground,
+            title: "Silent"
+        ),
+        autoDismissAfter: nil))
+}
+
+@available(iOS 17.0, *)
+#Preview("Compact Wrap — Timer") {
+    IslePreviewHost(configuration: .init(
+        presentation: .compactWrap,
+        content: .init(
+            leadingImage: UIImage(systemName: "timer"),
+            leadingImageTintColor: IsleColors.onBackground,
+            title: "0:12",
+            trailingAccessory: .text("REC")
+        ),
+        autoDismissAfter: nil))
+}
+
+@available(iOS 17.0, *)
+#Preview("Custom SwiftUI content") {
+    // Any SwiftUI view drops into a slot by wrapping it in the module's `HostingView`.
+    let swiftUICenter = HostingView(
+        customView: HStack(spacing: 8) {
+            ProgressView().tint(.white)
+            Text("Downloading…")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+        }
+    )
+    IslePreviewHost(configuration: .init(
+        presentation: .compactPill,
+        content: .init(centerView: swiftUICenter),
+        autoDismissAfter: nil))
+}
+
+@available(iOS 17.0, *)
+#Preview("SwiftUI — tap a cell") { DemoFeedView() }
+#endif
+#endif
