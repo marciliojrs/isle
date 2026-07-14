@@ -1,55 +1,81 @@
 # Isle
 
-In-app notifications styled like the iPhone Dynamic Island.
+<p align="center">
+  <img src="isle.png" width="128" alt="Isle app icon">
+</p>
 
-Isle draws a fake, in-app Dynamic-Island-styled notification overlay on top of your app's own content. It is **not** an ActivityKit Live Activity — it needs no widget extension, no entitlements, and works purely in the foreground, on any iPhone (island, notch, or flat-top).
+<p align="center">
+  In-app notifications styled like the iPhone Dynamic Island.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
+  <img alt="Swift" src="https://img.shields.io/badge/swift-5.10-orange.svg">
+  <img alt="iOS" src="https://img.shields.io/badge/iOS-15%2B-blue.svg">
+  <img alt="SPM" src="https://img.shields.io/badge/SPM-supported-brightgreen.svg">
+  <img alt="DocC" src="https://img.shields.io/badge/docs-DocC-blueviolet.svg">
+  <img alt="Version" src="https://img.shields.io/github/v/tag/marciliojrs/isle?label=tag">
+</p>
+
+Isle draws a fake, in-app Dynamic-Island-styled notification overlay on top of your app's own content. It is **not** an ActivityKit Live Activity: it needs no widget extension, no entitlements, and works purely in the foreground on any iPhone, whether it has an island, a notch, or a flat top.
 
 > **Not affiliated with Apple.** "Dynamic Island" is a trademark of Apple Inc. Isle merely mimics its visual language for in-app notifications; it does not use, extend, or depend on ActivityKit or any private API.
+
+## Why Isle?
+
+Use Isle when you want a focused, tactile notification that feels at home on modern iOS without adding infrastructure:
+
+- Foreground-only notifications for UIKit and SwiftUI apps
+- Dynamic-Island-inspired layout without ActivityKit or private API
+- Device-aware geometry for island, notch, and flat-top devices
+- Custom `UIView` slots, plus SwiftUI support through `HostingView`
+- No third-party dependencies
 
 ## Features
 
 - Three presentations: `expanded`, `compactWrap`, and `compactPill`
-- Device-aware geometry — automatically adapts to island, notch, or flat-top devices
 - Grow-from-the-island animation on present and dismiss
-- Status bar is hidden while a notification is presented, matching the system's own behavior
-- Auto-dismiss on a timer, swipe-to-dismiss, or programmatic dismissal via a returned token
-- Fully custom leading/center/trailing slots — drop in any `UIView`, or a SwiftUI view via `HostingView`
-- No third-party dependencies
+- Status bar hiding while a notification is visible
+- Auto-dismiss on a timer, swipe-to-dismiss, or programmatic dismissal via `IsleToken`
+- Built-in connection issue preset
+- UIKit-first API with declarative SwiftUI modifiers
+- MIT licensed and Swift Package Manager ready
 
 ## Screenshots
 
 | Expanded | Compact Pill | Compact Wrap |
 |:---:|:---:|:---:|
-| <img src="Screenshots/expanded.png" width="240" alt="Expanded"> | <img src="Screenshots/compact-pill.png" width="240" alt="Compact Pill"> | <img src="Screenshots/compact-wrap.png" width="240" alt="Compact Wrap"> |
+| <img src="Screenshots/expanded.png" width="240" alt="Expanded Isle notification"> | <img src="Screenshots/compact-pill.png" width="240" alt="Compact pill Isle notification"> | <img src="Screenshots/compact-wrap.png" width="240" alt="Compact wrap Isle notification"> |
 
 ## Requirements
 
-- iOS 15.0+
-- Swift 5.9+
+| Platform | Minimum |
+| --- | --- |
+| iOS | 15.0 |
+| Swift | 5.10 |
+| Xcode | 15.3 |
 
 ## Installation
 
 ### Swift Package Manager
 
-In Xcode: **File ▸ Add Package Dependencies…** and enter:
+In Xcode, choose **File > Add Package Dependencies...** and enter:
 
-```
+```text
 https://github.com/marciliojrs/isle.git
 ```
 
-Or add it to your `Package.swift`:
+Or add Isle to your package manifest:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/marciliojrs/isle.git", from: "0.1.0")
+    .package(url: "https://github.com/marciliojrs/isle.git", from: "1.0.0")
 ]
 ```
 
-## Usage
+Then add `"Isle"` to the target dependencies that should use it.
 
-### Expanded
-
-An AirPods-style connect banner:
+## Quick Start
 
 ```swift
 import Isle
@@ -68,9 +94,30 @@ IsleNotificationCenter.shared.show(
 )
 ```
 
+## Presentations
+
+### Expanded
+
+An AirPods-style connect banner:
+
+```swift
+IsleNotificationCenter.shared.show(
+    Isle.Configuration(
+        presentation: .expanded,
+        content: Isle.Content(
+            leadingImage: UIImage(systemName: "airpodspro"),
+            leadingImageTintColor: .white,
+            title: "AirPods Pro",
+            subtitle: "Connected",
+            trailingAccessory: .text("82%")
+        )
+    )
+)
+```
+
 ### Compact Pill
 
-A Silent-mode toggle, auto-dismissed after 2 seconds:
+A silent-mode toggle, auto-dismissed after two seconds:
 
 ```swift
 IsleNotificationCenter.shared.show(
@@ -88,7 +135,7 @@ IsleNotificationCenter.shared.show(
 
 ### Compact Wrap
 
-Leading content on the left, trailing on the right — flanking the physical island/notch. Kept up indefinitely until dismissed:
+Leading content on the left and trailing content on the right, flanking the physical island or notch:
 
 ```swift
 IsleNotificationCenter.shared.show(
@@ -105,23 +152,23 @@ IsleNotificationCenter.shared.show(
 )
 ```
 
-### Connection issue preset
+## Presets
 
-A ready-made compact pill for connectivity loss — a wifi-exclamation glyph tinted critical red. You supply the localized message:
+Use `connectionIssue(message:)` for a ready-made compact connectivity warning:
 
 ```swift
 IsleNotificationCenter.shared.show(.connectionIssue(message: "You are offline"))
 ```
 
-### Custom SwiftUI content
+## Custom Content
 
-Any slot (`leadingView`, `centerView`, `trailingView`) accepts a plain `UIView`, or a SwiftUI view wrapped in the module's `HostingView`:
+Any slot accepts a plain `UIView`. For SwiftUI content, wrap the view with `HostingView`:
 
 ```swift
 let center = HostingView(
     customView: HStack(spacing: 8) {
         ProgressView().tint(.white)
-        Text("Downloading…")
+        Text("Downloading...")
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white)
     }
@@ -135,53 +182,60 @@ IsleNotificationCenter.shared.show(
 )
 ```
 
-### Dismissal
+## Dismissal
 
-`show(_:)` returns an `IsleToken` you can use to dismiss *that specific* notification later (a no-op if it has already been replaced or dismissed):
+`show(_:)` returns an `IsleToken` that dismisses that specific notification. Calling it after the notification has already been replaced or dismissed is a no-op.
 
 ```swift
 let token = IsleNotificationCenter.shared.show(.connectionIssue(message: "You are offline"))
-// ...
+
 token.dismiss()
 ```
 
-Or dismiss whatever is currently visible:
+You can also dismiss whatever is currently visible:
 
 ```swift
 IsleNotificationCenter.shared.dismiss()
 ```
 
-Notifications also auto-dismiss after `Configuration.autoDismissAfter` seconds (default 3, `nil` to keep until dismissed) and support swipe-up-to-dismiss when `allowsSwipeToDismiss` is `true` (the default).
+Notifications auto-dismiss after `Configuration.autoDismissAfter` seconds. The default is `3`; pass `nil` to keep the notification visible until dismissed. Swipe-up-to-dismiss is enabled by default through `allowsSwipeToDismiss`.
 
 ## SwiftUI
 
-For SwiftUI apps, `View.isleNotification(...)` presents a notification declaratively, mirroring `alert`/`sheet`. Requires iOS 15.0+.
+For SwiftUI apps, `View.isleNotification(...)` presents a notification declaratively, mirroring `alert` and `sheet`.
 
-### `isPresented:` binding
+### `isPresented`
 
 ```swift
 struct ContentView: View {
     @State private var showConnected = false
+
     var body: some View {
-        Button("Connect AirPods") { showConnected = true }
-            .isleNotification(isPresented: $showConnected,
-                Isle.Configuration(
-                    presentation: .expanded,
-                    content: .init(
-                        leadingImage: UIImage(systemName: "airpodspro"),
-                        leadingImageTintColor: .white,
-                        title: "AirPods Pro",
-                        subtitle: "Connected",
-                        trailingAccessory: .text("82%"))))
+        Button("Connect AirPods") {
+            showConnected = true
+        }
+        .isleNotification(
+            isPresented: $showConnected,
+            Isle.Configuration(
+                presentation: .expanded,
+                content: .init(
+                    leadingImage: UIImage(systemName: "airpodspro"),
+                    leadingImageTintColor: .white,
+                    title: "AirPods Pro",
+                    subtitle: "Connected",
+                    trailingAccessory: .text("82%")
+                )
+            )
+        )
     }
 }
 ```
 
-Setting `showConnected = true` presents the notification; setting it back to `false` dismisses it. If the notification dismisses itself instead — auto-dismiss timer, swipe, or being replaced by another notification — the binding is reset to `false` automatically, so your state always reflects what's on screen.
+When the notification dismisses itself through its timer, a swipe, or replacement by another notification, `showConnected` is reset to `false`.
 
-### `item:` binding
+### `item`
 
-Present a notification built from an optional value, e.g. driving it off a view model's state:
+Present a notification from an optional value:
 
 ```swift
 struct ConnectionAlert: Identifiable {
@@ -191,6 +245,7 @@ struct ConnectionAlert: Identifiable {
 
 struct ContentView: View {
     @State private var connectionAlert: ConnectionAlert?
+
     var body: some View {
         Text("Status")
             .isleNotification(item: $connectionAlert) { alert in
@@ -200,7 +255,49 @@ struct ContentView: View {
 }
 ```
 
-Setting `connectionAlert` to a non-`nil` value presents the notification; `connectionAlert` is reset to `nil` automatically once the notification dismisses — whether by your own code or on its own.
+`connectionAlert` is reset to `nil` automatically once the notification dismisses.
+
+## Documentation
+
+Isle is documented with Swift DocC-compatible symbol comments and is configured for Swift Package Index documentation through `.spi.yml`.
+
+Useful entry points:
+
+- `Isle.Configuration`: presentation, content, timing, swipe, and haptic options
+- `Isle.Content`: built-in text/image content and custom slot views
+- `IsleNotificationCenter`: imperative UIKit-style presentation API
+- `View.isleNotification(...)`: declarative SwiftUI API
+- `HostingView`: bridge for embedding SwiftUI content inside Isle slots
+
+To build docs locally in Xcode, select the package and choose **Product > Build Documentation**.
+
+## GitHub Topics
+
+Suggested repository topics:
+
+```text
+swift, ios, uikit, swiftui, spm, swift-package-manager, dynamic-island, notifications, animation, docc
+```
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+Good first contributions include:
+
+- Additional examples and screenshots
+- Accessibility improvements
+- Device geometry refinements
+- Focused tests around layout and dismissal behavior
+- Documentation fixes
+
+## Roadmap Ideas
+
+- Example app target
+- More built-in presets
+- DocC tutorial pages
+- Snapshot tests for major device families
+- Configurable animation timing
 
 ## License
 
