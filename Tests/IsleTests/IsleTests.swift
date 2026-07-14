@@ -12,8 +12,19 @@ struct IsleConfigurationTests {
             presentation: .expanded,
             content: Isle.Content(title: "Hi")
         )
+        #expect(config.id == nil)
         #expect(config.autoDismissAfter == 3)
         #expect(config.allowsSwipeToDismiss == true)
+    }
+
+    @Test("Configuration accepts a stable identifier for repeat detection")
+    func configurationIdentifier() {
+        let config = Isle.Configuration(
+            id: "network-error",
+            presentation: .compactPill,
+            content: Isle.Content(title: "Offline")
+        )
+        #expect(config.id == "network-error")
     }
 
     @Test("Content defaults: all optionals nil")
@@ -131,6 +142,14 @@ struct IsleViewTests {
         root === target || root.subviews.contains { contains($0, target) }
     }
 
+    private func resolveStyle(_ style: UIUserInterfaceStyle, for view: UIView) {
+        let parent = UIViewController()
+        parent.overrideUserInterfaceStyle = style
+        parent.view.addSubview(view)
+        view.frame = CGRect(x: 0, y: 0, width: 240, height: 80)
+        view.layoutIfNeeded()
+    }
+
     @Test("Custom leading/center/trailing views are used in the expanded layout")
     func expandedCustomViews() {
         let leading = UIView(), center = UIView(), trailing = UIView()
@@ -180,6 +199,46 @@ struct IsleViewTests {
         #expect(size.width < 320)
     }
 
+    @Test("Compact wrap timer width fits content on Dynamic Island devices")
+    func compactWrapTimerWidthFitsContentOnDynamicIsland() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    leadingImage: UIImage(systemName: "timer"),
+                    title: "12:34",
+                    trailingAccessory: .text("REC")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+        let size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        #expect(size.width < 340)
+    }
+
+    @Test("Compact wrap leading content ends at the cutout leading edge")
+    func compactWrapLeadingContentAlignsWithCutoutLeadingEdge() {
+        let leading = UILabel()
+        leading.text = "0:12"
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    leadingView: leading,
+                    trailingAccessory: .text("REC")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+
+        let size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        view.frame = CGRect(origin: .zero, size: size)
+        view.layoutIfNeeded()
+
+        let cutoutLeadingEdge = size.width / 2 - Isle.Metrics.cutoutWidth(topSafeAreaInset: 59) / 2
+        #expect(abs(leading.frame.maxX - cutoutLeadingEdge) < 0.5)
+    }
+
     @Test("Compact wrap trailing content is fixed to the trailing edge")
     func compactWrapTrailingContentAlignsWithTrailingEdge() {
         let trailing = UILabel()
@@ -202,6 +261,26 @@ struct IsleViewTests {
 
         let expectedTrailing = size.width - Isle.Metrics.contentInsets.right
         #expect(abs(trailing.frame.maxX - expectedTrailing) < 0.5)
+    }
+
+    @Test("Notification container shows a light border in dark mode")
+    func notificationBorderInDarkMode() {
+        let view = makeView(.expanded)
+        resolveStyle(.dark, for: view)
+        view.traitCollectionDidChange(nil)
+
+        #expect(view.layer.borderWidth > 0)
+        #expect(view.layer.borderColor == IsleColors.darkModeBorder.cgColor)
+    }
+
+    @Test("Notification container has no border in light mode")
+    func notificationBorderInLightMode() {
+        let view = makeView(.expanded)
+        resolveStyle(.light, for: view)
+        view.traitCollectionDidChange(nil)
+
+        #expect(view.layer.borderWidth == 0)
+        #expect(view.layer.borderColor == nil)
     }
 }
 
@@ -285,6 +364,14 @@ struct IsleCameraViewTests {
         )
     }
 
+    private func resolveStyle(_ style: UIUserInterfaceStyle, for view: UIView) {
+        let parent = UIViewController()
+        parent.overrideUserInterfaceStyle = style
+        parent.view.addSubview(view)
+        view.frame = CGRect(x: 0, y: 0, width: 320, height: 360)
+        view.layoutIfNeeded()
+    }
+
     @Test("Camera view uses camera corner radius and black background")
     func cameraContainerAppearance() {
         let view = makeView()
@@ -344,6 +431,26 @@ struct IsleCameraViewTests {
         closeButton?.sendActions(for: .touchUpInside)
 
         #expect(didDismiss)
+    }
+
+    @Test("Camera container shows a light border in dark mode")
+    func cameraBorderInDarkMode() {
+        let view = makeView()
+        resolveStyle(.dark, for: view)
+        view.traitCollectionDidChange(nil)
+
+        #expect(view.layer.borderWidth > 0)
+        #expect(view.layer.borderColor == IsleColors.darkModeBorder.cgColor)
+    }
+
+    @Test("Camera container has no border in light mode")
+    func cameraBorderInLightMode() {
+        let view = makeView()
+        resolveStyle(.light, for: view)
+        view.traitCollectionDidChange(nil)
+
+        #expect(view.layer.borderWidth == 0)
+        #expect(view.layer.borderColor == nil)
     }
 }
 #endif

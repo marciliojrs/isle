@@ -194,6 +194,77 @@ final class IsleCameraPreviewHost: UIViewController {
     }
 }
 
+final class IsleTimerPreviewView: UIStackView {
+
+    private let imageView = UIImageView(image: UIImage(systemName: "timer"))
+    private let label = UILabel()
+    private var elapsedSeconds = 12
+    private var timer: Timer?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configure()
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        timer?.invalidate()
+    }
+
+    private func configure() {
+        axis = .horizontal
+        alignment = .center
+        spacing = 7
+        isLayoutMarginsRelativeArrangement = false
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        imageView.tintColor = IsleColors.onBackground
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: 22),
+            imageView.heightAnchor.constraint(equalTo: imageView.widthAnchor)
+        ])
+
+        label.textColor = IsleColors.onBackground
+        label.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        updateLabel()
+
+        addArrangedSubview(imageView)
+        addArrangedSubview(label)
+
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            elapsedSeconds += 1
+            updateLabel()
+        }
+    }
+
+    private func updateLabel() {
+        label.text = String(format: "%d:%02d", elapsedSeconds / 60, elapsedSeconds % 60)
+    }
+}
+
+final class IsleRecordingPreviewLabel: UILabel {
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        text = "REC"
+        textColor = IsleColors.onBackground
+        font = .systemFont(ofSize: 13, weight: .semibold)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
 @available(iOS 17.0, *)
 #Preview("Expanded — AirPods") {
     IslePreviewHost(configuration: .init(
@@ -225,10 +296,8 @@ final class IsleCameraPreviewHost: UIViewController {
     IslePreviewHost(configuration: .init(
         presentation: .compactWrap,
         content: .init(
-            leadingImage: UIImage(systemName: "timer"),
-            leadingImageTintColor: IsleColors.onBackground,
-            title: "0:12",
-            trailingAccessory: .text("REC")
+            leadingView: IsleTimerPreviewView(),
+            trailingView: IsleRecordingPreviewLabel()
         ),
         autoDismissAfter: nil))
 }

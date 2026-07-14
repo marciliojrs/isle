@@ -84,7 +84,23 @@ public final class IsleCameraView: UIView {
         if Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .notch {
             layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         }
+        updateContainerBorder()
         translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        updateContainerBorder()
+    }
+
+    private func updateContainerBorder() {
+        guard traitCollection.userInterfaceStyle == .dark else {
+            layer.borderWidth = 0
+            layer.borderColor = nil
+            return
+        }
+        layer.borderWidth = 1 / max(UIScreen.main.scale, 1)
+        layer.borderColor = IsleColors.darkModeBorder.cgColor
     }
 
     private func buildChrome() {

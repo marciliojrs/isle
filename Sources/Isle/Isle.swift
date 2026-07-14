@@ -7,6 +7,18 @@ import UIKit
 /// Live Activity. It is foreground-only and needs no widget extension or entitlements.
 public enum Isle {
 
+    /// How `IsleNotificationCenter.show` handles a new notification when another one
+    /// is already visible.
+    public enum PresentationBehavior {
+        /// Dismiss the current notification and show the new one immediately.
+        case replace
+        /// Keep the current notification visible and show the new one after it dismisses.
+        case enqueue
+        /// If the visible notification matches the new one, replay attention animation
+        /// instead of replacing it. Otherwise behaves like `.replace`.
+        case bounceIfSame
+    }
+
     /// The visual form a notification takes.
     public enum Presentation {
         /// Big card that drops from the island: leading image, title, subtitle, trailing accessory.
@@ -75,6 +87,9 @@ public enum Isle {
     /// - `.compactWrap`: `leadingImage` + `title` (left), `trailingAccessory` (right). `subtitle` ignored.
     /// - `.compactPill`: `leadingImage` + `title` (centered). `subtitle` + `trailingAccessory` ignored.
     public struct Configuration {
+        /// Optional stable identity used to detect repeated notifications. Set this for
+        /// repeatable states such as `"network-error"` when using `.bounceIfSame`.
+        public var id: String?
         public var presentation: Presentation
         public var content: Content
         /// Seconds before auto-dismiss. `nil` keeps it until dismissed programmatically.
@@ -84,12 +99,14 @@ public enum Isle {
         public var haptic: UIImpactFeedbackGenerator.FeedbackStyle?
 
         public init(
+            id: String? = nil,
             presentation: Presentation,
             content: Content,
             autoDismissAfter: TimeInterval? = 3,
             allowsSwipeToDismiss: Bool = true,
             haptic: UIImpactFeedbackGenerator.FeedbackStyle? = .soft
         ) {
+            self.id = id
             self.presentation = presentation
             self.content = content
             self.autoDismissAfter = autoDismissAfter

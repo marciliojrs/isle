@@ -55,7 +55,23 @@ public final class IsleView: UIView {
         if Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .notch {
             layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         }
+        updateContainerBorder()
         translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        updateContainerBorder()
+    }
+
+    private func updateContainerBorder() {
+        guard traitCollection.userInterfaceStyle == .dark else {
+            layer.borderWidth = 0
+            layer.borderColor = nil
+            return
+        }
+        layer.borderWidth = 1 / max(UIScreen.main.scale, 1)
+        layer.borderColor = IsleColors.darkModeBorder.cgColor
     }
 
     // MARK: - Content
@@ -149,6 +165,8 @@ public final class IsleView: UIView {
         stack.axis = .horizontal
         stack.alignment = .center
         stack.spacing = 6
+        stack.setContentHuggingPriority(.required, for: .horizontal)
+        stack.setContentCompressionResistancePriority(.required, for: .horizontal)
         if configuration.content.showsActivityIndicator { stack.addArrangedSubview(activityIndicator) }
         if configuration.content.leadingImage != nil { stack.addArrangedSubview(leadingImageView) }
         if configuration.content.title != nil { stack.addArrangedSubview(titleLabel) }
@@ -186,11 +204,15 @@ public final class IsleView: UIView {
             leading.trailingAnchor.constraint(equalTo: centerXAnchor, constant: -halfGap),
             heightAnchor.constraint(equalToConstant: Isle.Metrics.cutoutHeight(topSafeAreaInset: topSafeAreaInset) + 10)
         ]
-        constraints.append(
-            usesSnugIslandWidth
-                ? leading.leadingAnchor.constraint(equalTo: leadingAnchor, constant: insets.left)
-                : leading.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: insets.left)
-        )
+        if usesSnugIslandWidth {
+            let leadingWidth = leading.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
+            let trailingWidth = trailingView?.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width ?? 0
+            let sideWidth = max(leadingWidth, trailingWidth)
+            constraints.append(widthAnchor.constraint(
+                equalToConstant: insets.left + sideWidth + (halfGap * 2) + sideWidth + insets.right
+            ))
+        }
+        constraints.append(leading.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: insets.left))
         if let trailingView {
             constraints += [
                 trailingView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -293,6 +315,8 @@ public final class IsleView: UIView {
             label.textColor = IsleColors.onBackground
             label.font = .systemFont(ofSize: 13, weight: .semibold)
             label.text = text
+            label.setContentHuggingPriority(.required, for: .horizontal)
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
             return label
         case .none:
             return UIView()
@@ -400,6 +424,32 @@ public final class IsleView: UIView {
             self.transform = self.collapsedTransform
         } completion: { _ in
             completion()
+        }
+    }
+
+    /// Lightweight attention animation for repeated notifications, such as showing the
+    /// same error again while it is already visible.
+    public func animateRepeatBounce() {
+        let anchor = layer.anchorPoint
+        setLayerAnchorPoint(CGPoint(x: 0.5, y: Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .dynamicIsland ? 0.5 : 0))
+        UIView.animate(
+            withDuration: 0.12,
+            delay: 0,
+            options: [.curveEaseOut]
+        ) {
+            self.transform = CGAffineTransform(scaleX: 1.035, y: 1.035)
+        } completion: { _ in
+            UIView.animate(
+                withDuration: 0.32,
+                delay: 0,
+                usingSpringWithDamping: 0.62,
+                initialSpringVelocity: 0.8,
+                options: [.curveEaseOut]
+            ) {
+                self.transform = .identity
+            } completion: { _ in
+                self.setLayerAnchorPoint(anchor)
+            }
         }
     }
 

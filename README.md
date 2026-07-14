@@ -201,7 +201,34 @@ You can also dismiss whatever is currently visible:
 IsleNotificationCenter.shared.dismiss()
 ```
 
+Or clear the visible notification and anything waiting behind it:
+
+```swift
+IsleNotificationCenter.shared.dismissAll()
+```
+
 Notifications auto-dismiss after `Configuration.autoDismissAfter` seconds. The default is `3`; pass `nil` to keep the notification visible until dismissed. Swipe-up-to-dismiss is enabled by default through `allowsSwipeToDismiss`.
+
+## Presentation Behavior
+
+By default, `show` replaces the current notification. Use `behavior: .enqueue` to present after the current notification dismisses:
+
+```swift
+IsleNotificationCenter.shared.show(first)
+IsleNotificationCenter.shared.show(second, behavior: .enqueue)
+```
+
+For repeated states, give the notification a stable `id` and use `.bounceIfSame`. If that same notification is already visible, Isle plays a small attention bounce instead of replacing it:
+
+```swift
+let error = Isle.Configuration(
+    id: "network-error",
+    presentation: .compactPill,
+    content: .init(title: "You are offline")
+)
+
+IsleNotificationCenter.shared.show(error, behavior: .bounceIfSame)
+```
 
 ## Confirmation Prompts
 

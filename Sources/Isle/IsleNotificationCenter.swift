@@ -20,9 +20,11 @@ public final class IsleNotificationCenter {
 
     private var window: PassthroughWindow?
     private var currentView: IsleView?
+    private var currentConfiguration: Isle.Configuration?
     private var dismissTimer: Timer?
     private var presentationID = 0
     private var onDismiss: (() -> Void)?
+    private var queue: [QueuedNotification] = []
 
     public init() {}
 
@@ -32,11 +34,47 @@ public final class IsleNotificationCenter {
     /// this presentation ends (auto-dismiss timer, swipe, programmatic `dismiss()`, or
     /// being replaced by a subsequent `show`).
     @discardableResult
-    public func show(_ configuration: Isle.Configuration, onDismiss: (() -> Void)? = nil) -> IsleToken {
+    public func show(
+        _ configuration: Isle.Configuration,
+        behavior: Isle.PresentationBehavior = .replace,
+        onDismiss: (() -> Void)? = nil
+    ) -> IsleToken {
+        switch behavior {
+        case .replace:
+            queue.removeAll()
+            return present(configuration, onDismiss: onDismiss)
+        case .enqueue:
+            guard currentView != nil else {
+                return present(configuration, onDismiss: onDismiss)
+            }
+            let id = UUID()
+            queue.append(QueuedNotification(id: id, configuration: configuration, onDismiss: onDismiss))
+            return IsleToken { [weak self] in
+                self?.queue.removeAll { $0.id == id }
+            }
+        case .bounceIfSame:
+            if let currentConfiguration, currentConfiguration.matches(configuration), let currentView {
+                currentView.animateRepeatBounce()
+                if let style = configuration.haptic {
+                    UIImpactFeedbackGenerator(style: style).impactOccurred()
+                }
+                scheduleAutoDismiss(for: configuration, advancesPresentationID: false)
+                return IsleToken { [weak self] in
+                    self?.dismiss(ifPresentationID: self?.presentationID ?? -1)
+                }
+            }
+            queue.removeAll()
+            return present(configuration, onDismiss: onDismiss)
+        }
+    }
+
+    private func present(_ configuration: Isle.Configuration, onDismiss: (() -> Void)? = nil) -> IsleToken {
         tearDown()
         self.onDismiss = onDismiss
+        currentConfiguration = configuration
 
         guard let scene = Self.activeWindowScene else {
+            currentConfiguration = nil
             return IsleToken(onDismiss: {})
         }
 
@@ -84,15 +122,8 @@ public final class IsleNotificationCenter {
         view.prepareForPresentation()
         view.animateIn()
 
-        presentationID += 1
+        scheduleAutoDismiss(for: configuration, advancesPresentationID: true)
         let idForThisPresentation = presentationID
-        if let seconds = configuration.autoDismissAfter {
-            dismissTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.dismiss(ifPresentationID: idForThisPresentation)
-                }
-            }
-        }
 
         return IsleToken { [weak self] in
             self?.dismiss(ifPresentationID: idForThisPresentation)
@@ -102,6 +133,22 @@ public final class IsleNotificationCenter {
     /// Dismisses the currently visible notification, if any.
     public func dismiss() {
         dismiss(ifPresentationID: presentationID)
+    }
+
+    /// Dismisses the visible notification and clears any queued notifications.
+    public func dismissAll() {
+        queue.removeAll()
+        guard let view = currentView else {
+            tearDown()
+            return
+        }
+        let id = presentationID
+        dismissTimer?.invalidate()
+        dismissTimer = nil
+        view.animateOut { [weak self] in
+            guard let self, self.presentationID == id else { return }
+            self.tearDown()
+        }
     }
 
     /// Presents a confirmation prompt using the same Isle overlay lifecycle as
@@ -140,12 +187,28 @@ public final class IsleNotificationCenter {
             allowsSwipeToDismiss: true,
             haptic: haptic
         )
-        let presentedToken = show(configuration)
+        let presentedToken = show(configuration, behavior: .replace)
         token = presentedToken
         return presentedToken
     }
 
     // MARK: - Private
+
+    private func scheduleAutoDismiss(for configuration: Isle.Configuration, advancesPresentationID: Bool) {
+        dismissTimer?.invalidate()
+        dismissTimer = nil
+        if advancesPresentationID {
+            presentationID += 1
+        }
+        let idForThisPresentation = presentationID
+        if let seconds = configuration.autoDismissAfter {
+            dismissTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.dismiss(ifPresentationID: idForThisPresentation)
+                }
+            }
+        }
+    }
 
     private func dismiss(ifPresentationID id: Int) {
         guard id == presentationID, let view = currentView else { return }
@@ -154,6 +217,7 @@ public final class IsleNotificationCenter {
         view.animateOut { [weak self] in
             guard let self, self.presentationID == id else { return }
             self.tearDown()
+            self.presentNextIfNeeded()
         }
     }
 
@@ -162,12 +226,19 @@ public final class IsleNotificationCenter {
         dismissTimer = nil
         currentView?.removeFromSuperview()
         currentView = nil
+        currentConfiguration = nil
         window?.isHidden = true
         window = nil
 
         let callback = onDismiss
         onDismiss = nil
         callback?()
+    }
+
+    private func presentNextIfNeeded() {
+        guard !queue.isEmpty else { return }
+        let next = queue.removeFirst()
+        _ = present(next.configuration, onDismiss: next.onDismiss)
     }
 
     @objc private func handleSwipeUp() {
@@ -177,6 +248,53 @@ public final class IsleNotificationCenter {
     private static var activeWindowScene: UIWindowScene? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         return scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+    }
+}
+
+private struct QueuedNotification {
+    let id: UUID
+    let configuration: Isle.Configuration
+    let onDismiss: (() -> Void)?
+}
+
+private extension Isle.Configuration {
+    func matches(_ other: Isle.Configuration) -> Bool {
+        if let id, let otherID = other.id {
+            return id == otherID
+        }
+        return id == nil
+            && other.id == nil
+            && presentation == other.presentation
+            && content.matches(other.content)
+    }
+}
+
+private extension Isle.Content {
+    func matches(_ other: Isle.Content) -> Bool {
+        leadingImage == other.leadingImage
+            && leadingImageTintColor == other.leadingImageTintColor
+            && title == other.title
+            && subtitle == other.subtitle
+            && trailingAccessory.matches(other.trailingAccessory)
+            && showsActivityIndicator == other.showsActivityIndicator
+            && leadingView === other.leadingView
+            && centerView === other.centerView
+            && trailingView === other.trailingView
+    }
+}
+
+private extension Optional where Wrapped == Isle.Accessory {
+    func matches(_ other: Isle.Accessory?) -> Bool {
+        switch (self, other) {
+        case (.none, .none):
+            return true
+        case let (.some(.text(left)), .some(.text(right))):
+            return left == right
+        case let (.some(.image(leftImage, leftTint)), .some(.image(rightImage, rightTint))):
+            return leftImage == rightImage && leftTint == rightTint
+        default:
+            return false
+        }
     }
 }
 
