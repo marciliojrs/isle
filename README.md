@@ -54,10 +54,6 @@ Use Isle when you want focused, tactile top-of-screen experiences that feel at h
 |:---:|:---:|:---:|
 | <img src="Screenshots/expanded.png" width="240" alt="Expanded Isle notification"> | <img src="Screenshots/compact-pill.png" width="240" alt="Compact pill Isle notification"> | <img src="Screenshots/compact-wrap.png" width="240" alt="Compact wrap Isle notification"> |
 
-<p align="center">
-  <img src="isle_demo_screenshot.png" width="600" alt="Isle demo app showcasing all features">
-</p>
-
 ## Requirements
 
 | Platform | Minimum |
