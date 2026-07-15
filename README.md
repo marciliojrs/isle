@@ -29,6 +29,7 @@ Use Isle when you want focused, tactile top-of-screen experiences that feel at h
 - Dynamic-Island-inspired layout and animation without ActivityKit or private API
 - Device-aware geometry for island, notch, and flat-top devices
 - Notifications, confirmation prompts, and camera capture from the top overlay
+- Auto-scrolling marquee text for long content in compact slots
 - Custom `UIView` slots, plus SwiftUI support through `HostingView`
 - No third-party dependencies
 
@@ -37,11 +38,14 @@ Use Isle when you want focused, tactile top-of-screen experiences that feel at h
 - Notification presentations: `expanded`, `compactWrap`, and `compactPill`
 - Confirmation prompts with OK and Cancel actions
 - Top camera panel with permission confirmation, capture callback, and SwiftUI binding support
+- Auto-scrolling marquee text for long content in compact slots
+- Activity indicator option for inline progress indicators
 - Device-aware present/dismiss animations for Dynamic Island, notch, and flat-top devices
 - Status bar hiding while an overlay is visible
 - Auto-dismiss on a timer, swipe-to-dismiss, or programmatic dismissal via `IsleToken`
 - Built-in connection issue preset
 - UIKit-first API with declarative SwiftUI modifiers
+- Comprehensive test suite
 - MIT licensed and Swift Package Manager ready
 
 ## Screenshots
@@ -49,6 +53,10 @@ Use Isle when you want focused, tactile top-of-screen experiences that feel at h
 | Expanded | Compact Pill | Compact Wrap |
 |:---:|:---:|:---:|
 | <img src="Screenshots/expanded.png" width="240" alt="Expanded Isle notification"> | <img src="Screenshots/compact-pill.png" width="240" alt="Compact pill Isle notification"> | <img src="Screenshots/compact-wrap.png" width="240" alt="Compact wrap Isle notification"> |
+
+<p align="center">
+  <img src="isle_demo_screenshot.png" width="600" alt="Isle demo app showcasing all features">
+</p>
 
 ## Requirements
 
@@ -349,12 +357,35 @@ struct ContentView: View {
 
 Isle is documented with Swift DocC-compatible symbol comments and is configured for Swift Package Index documentation through `.spi.yml`.
 
-Useful entry points:
+### Example App
+
+The `Example/` directory contains a demo app showcasing all Isle features across five scenes:
+
+- **Music Scene**: AirPods connect/disconnect notifications and now-playing compact wrap
+- **Phone Scene**: Call notifications with various presentations
+- **Timer Scene**: Timer and stopwatch notifications with marquee text
+- **Maps Scene**: Turn-by-turn directions and confirmation prompts
+- **Camera Scene**: Camera capture with permission flow and haptics
+
+To run the example app:
+
+```bash
+cd Example
+tuist generate --no-open
+open IsleDemo.xcworkspace
+```
+
+Then select an iOS 17+ simulator and run.
+
+### API Reference
 
 - `Isle.Configuration`: presentation, content, timing, swipe, and haptic options
-- `Isle.Content`: built-in text/image content and custom slot views
-- `IsleNotificationCenter`: imperative UIKit-style presentation API
-- `View.isleNotification(...)`: declarative SwiftUI API
+- `Isle.Content`: built-in text/image content, activity indicator, and custom slot views
+- `IsleNotificationCenter`: imperative UIKit-style notification presentation API
+- `IsleCameraCenter`: camera panel presentation with permission flow
+- `View.isleNotification(...)`: declarative SwiftUI notification API
+- `View.isleCamera(...)`: SwiftUI camera binding modifier
+- `IsleMarqueeView`: auto-scrolling text for compact notification slots
 - `HostingView`: bridge for embedding SwiftUI content inside Isle slots
 
 To build docs locally in Xcode, select the package and choose **Product > Build Documentation**.
@@ -381,11 +412,11 @@ Good first contributions include:
 
 ## Roadmap Ideas
 
-- Example app target
 - More built-in presets
 - DocC tutorial pages
 - Snapshot tests for major device families
 - Configurable animation timing
+- Additional example app scenes
 
 ## License
 
