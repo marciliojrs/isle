@@ -216,6 +216,137 @@ struct IsleViewTests {
         #expect(size.width < 340)
     }
 
+    @Test("Long compact title uses marquee so it can scroll")
+    func longCompactTitleUsesMarquee() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactPill,
+                content: .init(title: "A very long title that should scroll instead of clipping")
+            ),
+            topSafeAreaInset: 59
+        )
+
+        func containsMarquee(_ candidate: UIView) -> Bool {
+            candidate is IsleMarqueeView || candidate.subviews.contains(where: containsMarquee)
+        }
+
+        #expect(containsMarquee(view))
+    }
+
+    @Test("Short compact trailing text stays a fixed label")
+    func shortCompactTrailingTextStaysFixedLabel() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    title: "Playing",
+                    trailingAccessory: .text("REC")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+
+        func marqueeCount(_ candidate: UIView) -> Int {
+            (candidate is IsleMarqueeView ? 1 : 0) + candidate.subviews.map(marqueeCount).reduce(0, +)
+        }
+
+        #expect(marqueeCount(view) == 0)
+    }
+
+    @Test("Long compact trailing text uses marquee so it can scroll")
+    func longCompactTrailingTextUsesMarquee() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    title: "Playing",
+                    trailingAccessory: .text("Recording in progress")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+
+        func containsMarquee(_ candidate: UIView) -> Bool {
+            candidate is IsleMarqueeView || candidate.subviews.contains(where: containsMarquee)
+        }
+
+        #expect(containsMarquee(view))
+    }
+
+    @Test("Compact wrap marquee width stays inside device corner on Dynamic Island devices")
+    func compactWrapMarqueeWidthStaysInsideDeviceCorner() {
+        let marquee = IsleMarqueeView(text: "Playing: Long Song Title That Scrolls")
+        marquee.maxWidth = Isle.Metrics.compactWrapTextMaxWidth
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    trailingAccessory: .text("REC"),
+                    leadingView: marquee
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+        let parent = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 120))
+        parent.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.centerXAnchor.constraint(equalTo: parent.centerXAnchor),
+            view.topAnchor.constraint(equalTo: parent.topAnchor, constant: Isle.Metrics.shapeTopOffset(topSafeAreaInset: 59)),
+            view.leadingAnchor.constraint(greaterThanOrEqualTo: parent.leadingAnchor, constant: Isle.Metrics.sideInset),
+            view.trailingAnchor.constraint(lessThanOrEqualTo: parent.trailingAnchor, constant: -Isle.Metrics.sideInset)
+        ])
+
+        parent.layoutIfNeeded()
+        view.applyDeferredCompactWrapWidth()
+        parent.layoutIfNeeded()
+
+        let maximumWidth = parent.bounds.width - (Isle.Metrics.compactWrapEdgeInset(topSafeAreaInset: 59) * 2)
+        #expect(view.bounds.width <= maximumWidth + 0.5)
+    }
+
+    @Test("Compact wrap long built-in text stays close to island width")
+    func compactWrapLongBuiltInTextStaysCloseToIslandWidth() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    title: "Now Playing: Long Song Title That Scrolls",
+                    trailingAccessory: .text("REC")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+        let parent = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 120))
+        parent.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.centerXAnchor.constraint(equalTo: parent.centerXAnchor),
+            view.topAnchor.constraint(equalTo: parent.topAnchor, constant: Isle.Metrics.shapeTopOffset(topSafeAreaInset: 59)),
+            view.leadingAnchor.constraint(greaterThanOrEqualTo: parent.leadingAnchor, constant: Isle.Metrics.sideInset),
+            view.trailingAnchor.constraint(lessThanOrEqualTo: parent.trailingAnchor, constant: -Isle.Metrics.sideInset)
+        ])
+
+        parent.layoutIfNeeded()
+        view.applyDeferredCompactWrapWidth()
+        parent.layoutIfNeeded()
+
+        #expect(view.bounds.width <= 270)
+    }
+
+    @Test("Marquee lays out overflowing text at full text width")
+    func marqueeUsesFullTextWidthWhenOverflowing() {
+        let marquee = IsleMarqueeView(text: "Now Playing: Long Song Title That Scrolls")
+        marquee.maxWidth = Isle.Metrics.compactWrapTextMaxWidth
+        marquee.frame = CGRect(x: 0, y: 0, width: Isle.Metrics.compactWrapTextMaxWidth, height: 24)
+        marquee.layoutIfNeeded()
+
+        func allSubviews(of root: UIView) -> [UIView] {
+            root.subviews + root.subviews.flatMap(allSubviews)
+        }
+
+        let label = allSubviews(of: marquee).compactMap { $0 as? UILabel }.first
+        #expect(label?.bounds.width ?? 0 > marquee.bounds.width)
+    }
+
     @Test("Compact wrap leading content ends at the cutout leading edge")
     func compactWrapLeadingContentAlignsWithCutoutLeadingEdge() {
         let leading = UILabel()

@@ -195,6 +195,22 @@ extension Isle {
         /// Matches the modern iPhone display corner radius closely enough for an
         /// overlay that attaches to the device edge.
         static let cameraCornerRadius: CGFloat = 39
+        /// Physical screen corner radius so full-width compact notifications
+        /// blend seamlessly with the device display on notch / flat-top devices.
+        /// Derived from the top safe-area inset which encodes the device class.
+        static func screenCornerRadius(topSafeAreaInset: CGFloat) -> CGFloat {
+            switch cutoutKind(topSafeAreaInset: topSafeAreaInset) {
+            case .dynamicIsland: return 47
+            case .notch:         return 47
+            case .none:          return 0 
+            }
+        }
+        static func compactWrapEdgeInset(topSafeAreaInset: CGFloat) -> CGFloat {
+            max(sideInset, screenCornerRadius(topSafeAreaInset: topSafeAreaInset) - compactCornerRadius)
+        }
+        static let compactWrapTextMaxWidth: CGFloat = 90
+        static let compactPillTextMaxWidth: CGFloat = 120
+        static let compactTrailingTextMaxWidth: CGFloat = 64
         static let sideInset: CGFloat = 12
         static let contentInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
 

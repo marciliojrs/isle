@@ -18,6 +18,9 @@ public final class IsleView: UIView {
     private lazy var leadingImageView = makeLeadingImageView()
     private lazy var trailingAccessoryView = makeTrailingAccessoryView()
     private lazy var activityIndicator = makeActivityIndicator()
+    /// Reference to the compact-wrap leading view for deferred width measurement.
+    private var compactWrapLeadingView: UIView?
+    private var compactWrapWidthConstraint: NSLayoutConstraint?
 
     /// - Parameters:
     ///   - configuration: content + presentation to render.
@@ -47,9 +50,11 @@ public final class IsleView: UIView {
     private func configureContainer() {
         backgroundColor = IsleColors.background
         layer.masksToBounds = true
+        let isIsland = Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .dynamicIsland
         layer.cornerRadius = configuration.presentation == .expanded
             ? Isle.Metrics.expandedCornerRadius
-            : Isle.Metrics.compactCornerRadius
+            : (isIsland ? Isle.Metrics.compactCornerRadius
+                : Isle.Metrics.screenCornerRadius(topSafeAreaInset: topSafeAreaInset))
         // The notch sits flush with the screen's top edge, so round only the bottom
         // corners (a square top hugs the top edge). The island floats, so round all four.
         if Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .notch {
@@ -169,8 +174,45 @@ public final class IsleView: UIView {
         stack.setContentCompressionResistancePriority(.required, for: .horizontal)
         if configuration.content.showsActivityIndicator { stack.addArrangedSubview(activityIndicator) }
         if configuration.content.leadingImage != nil { stack.addArrangedSubview(leadingImageView) }
-        if configuration.content.title != nil { stack.addArrangedSubview(titleLabel) }
+        if configuration.content.title != nil { stack.addArrangedSubview(makeCompactTitleView()) }
         return stack
+    }
+
+    private func makeCompactTitleView() -> UIView {
+        makeCompactTextView(
+            configuration.content.title,
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            maxWidth: configuration.presentation == .compactWrap
+                ? Isle.Metrics.compactWrapTextMaxWidth
+                : Isle.Metrics.compactPillTextMaxWidth
+        )
+    }
+
+    private func makeCompactTextView(_ text: String?, font: UIFont, maxWidth: CGFloat) -> UIView {
+        let measuredWidth = ((text ?? "") as NSString).size(withAttributes: [.font: font]).width
+        guard measuredWidth > maxWidth else {
+            let label = UILabel()
+            label.textColor = IsleColors.onBackground
+            label.font = font
+            label.numberOfLines = 1
+            label.lineBreakMode = .byTruncatingTail
+            label.text = text
+            label.setContentHuggingPriority(.required, for: .horizontal)
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
+            return label
+        }
+
+        let marquee = IsleMarqueeView(
+            text: text,
+            style: .init(
+                font: font,
+                textColor: IsleColors.onBackground
+            )
+        )
+        marquee.maxWidth = maxWidth
+        marquee.setContentHuggingPriority(.required, for: .horizontal)
+        marquee.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return marquee
     }
 
     private func buildCompactWrap() {
@@ -184,6 +226,7 @@ public final class IsleView: UIView {
         // the gap and never covers the content. One-liner at the island's vertical level.
         let leading = configuration.content.leadingView ?? makeCompactContentStack()
         leading.translatesAutoresizingMaskIntoConstraints = false
+        compactWrapLeadingView = leading
         addSubview(leading)
 
         let trailingView = configuration.content.trailingView
@@ -204,13 +247,11 @@ public final class IsleView: UIView {
             leading.trailingAnchor.constraint(equalTo: centerXAnchor, constant: -halfGap),
             heightAnchor.constraint(equalToConstant: Isle.Metrics.cutoutHeight(topSafeAreaInset: topSafeAreaInset) + 10)
         ]
-        if usesSnugIslandWidth {
-            let leadingWidth = leading.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
-            let trailingWidth = trailingView?.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width ?? 0
-            let sideWidth = max(leadingWidth, trailingWidth)
-            constraints.append(widthAnchor.constraint(
-                equalToConstant: insets.left + sideWidth + (halfGap * 2) + sideWidth + insets.right
-            ))
+        // Width is deferred when using snug island layout — the expensive
+        // systemLayoutSizeFitting measurements are applied later so the
+        // notification can animate in without blocking the main thread.
+        if !usesSnugIslandWidth {
+            // Non-island devices don't need snug sizing; no width constraint needed.
         }
         constraints.append(leading.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: insets.left))
         if let trailingView {
@@ -223,6 +264,32 @@ public final class IsleView: UIView {
             constraints.append(trailingAnchor.constraint(equalTo: centerXAnchor, constant: halfGap + insets.right))
         }
         NSLayoutConstraint.activate(constraints)
+    }
+
+    /// Measures the leading/trailing content and applies the snug width constraint for
+    /// `.compactWrap` on Dynamic Island devices. Called after the animation starts so
+    /// the expensive layout measurement doesn't block the main thread during presentation.
+    func applyDeferredCompactWrapWidth() {
+        guard Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .dynamicIsland else { return }
+        let insets = Isle.Metrics.contentInsets
+        let halfGap = Isle.Metrics.cutoutWidth(topSafeAreaInset: topSafeAreaInset) / 2
+        guard let leading = compactWrapLeadingView else { return }
+        let trailingView = configuration.content.trailingView
+            ?? (configuration.content.trailingAccessory != nil ? trailingAccessoryView : nil)
+        let leadingWidth = leading.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
+        let trailingWidth = trailingView?.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width ?? 0
+        let sideWidth = max(leadingWidth, trailingWidth)
+        let snugWidth = insets.left + sideWidth + (halfGap * 2) + sideWidth + insets.right
+        let edgeInset = Isle.Metrics.compactWrapEdgeInset(topSafeAreaInset: topSafeAreaInset)
+        let availableWidth = superview?.bounds.width ?? window?.bounds.width ?? 0
+        let minimumWidth = insets.left + (halfGap * 2) + insets.right
+        let maximumWidth = availableWidth > 0
+            ? max(minimumWidth, availableWidth - (edgeInset * 2))
+            : snugWidth
+        let width = min(snugWidth, maximumWidth)
+        compactWrapWidthConstraint?.isActive = false
+        compactWrapWidthConstraint = widthAnchor.constraint(equalToConstant: width)
+        compactWrapWidthConstraint?.isActive = true
     }
 
     private func buildCompactPill() {
@@ -311,6 +378,13 @@ public final class IsleView: UIView {
             ])
             return imageView
         case .text(let text):
+            if configuration.presentation != .expanded {
+                return makeCompactTextView(
+                    text,
+                    font: .systemFont(ofSize: 13, weight: .semibold),
+                    maxWidth: Isle.Metrics.compactTrailingTextMaxWidth
+                )
+            }
             let label = UILabel()
             label.textColor = IsleColors.onBackground
             label.font = .systemFont(ofSize: 13, weight: .semibold)

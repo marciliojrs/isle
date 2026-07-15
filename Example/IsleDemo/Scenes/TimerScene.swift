@@ -169,7 +169,7 @@ private final class TimerCompactLeadingView: UIStackView {
         addArrangedSubview(label)
 
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
+            DispatchQueue.main.async {
                 guard let self, self.remainingSeconds > 0 else { return }
                 self.remainingSeconds -= 1
                 self.updateLabel()

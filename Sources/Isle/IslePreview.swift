@@ -66,6 +66,7 @@ struct DemoFeedView: View {
 final class IslePreviewHost: UIViewController {
 
     private let configuration: Isle.Configuration
+    private var token: IsleToken?
 
     init(configuration: Isle.Configuration) {
         self.configuration = configuration
@@ -91,31 +92,17 @@ final class IslePreviewHost: UIViewController {
         presentNotification()
     }
 
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        token?.dismiss()
+        token = nil
+    }
+
     /// Places the notification exactly as `IsleNotificationCenter` does
     /// (top pinned at the island so the shape contains it) and runs the present
     /// animation once. Refresh the canvas to replay.
     private func presentNotification() {
-        // Read the canvas device's real safe area so the preview respects notch (top
-        // inset 0) vs island (top inset 11) — matching what the app's Center does.
-        let topInset = view.safeAreaInsets.top
-        let notification = IsleView(configuration: configuration, topSafeAreaInset: topInset)
-        view.addSubview(notification)
-        NSLayoutConstraint.activate([
-            notification.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            notification.topAnchor.constraint(
-                equalTo: view.topAnchor,
-                constant: Isle.Metrics.shapeTopOffset(topSafeAreaInset: topInset)),
-            notification.leadingAnchor.constraint(
-                greaterThanOrEqualTo: view.leadingAnchor,
-                constant: Isle.Metrics.sideInset),
-            notification.trailingAnchor.constraint(
-                lessThanOrEqualTo: view.trailingAnchor,
-                constant: -Isle.Metrics.sideInset)
-        ])
-        view.layoutIfNeeded()
-
-        notification.prepareForPresentation()
-        notification.animateIn()
+        token = IsleNotificationCenter.shared.show(configuration, behavior: .replace)
 
         // Hide the status bar (time/battery) while the notification is up.
         isNotificationVisible = true
@@ -303,6 +290,25 @@ final class IsleRecordingPreviewLabel: UILabel {
 }
 
 @available(iOS 17.0, *)
+#Preview("Compact Wrap — Marquee") {
+    IslePreviewHost(configuration: .init(
+        presentation: .compactWrap,
+        content: .init(
+            trailingAccessory: .text("REC"),
+            leadingView: {
+                let marquee = IsleMarqueeView(
+                    text: "Now Playing: Long Song Title That Scrolls",
+                    style: .init(font: .monospacedDigitSystemFont(ofSize: 15, weight: .semibold))
+                )
+                marquee.maxWidth = Isle.Metrics.compactWrapTextMaxWidth
+                marquee.setContentHuggingPriority(.required, for: .horizontal)
+                return marquee
+            }()
+        ),
+        autoDismissAfter: nil))
+}
+
+@available(iOS 17.0, *)
 #Preview("Custom SwiftUI content") {
     // Any SwiftUI view drops into a slot by wrapping it in the module's `HostingView`.
     let swiftUICenter = HostingView(
@@ -312,6 +318,7 @@ final class IsleRecordingPreviewLabel: UILabel {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)
         }
+        .fixedSize()
     )
     IslePreviewHost(configuration: .init(
         presentation: .compactPill,
