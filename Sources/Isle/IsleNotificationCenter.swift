@@ -20,23 +20,129 @@ public final class IsleNotificationCenter {
 
     private var window: PassthroughWindow?
     private var currentView: IsleView?
+    private var currentConfiguration: Isle.Configuration?
     private var dismissTimer: Timer?
     private var presentationID = 0
+    private var currentTokenID: UUID?
     private var onDismiss: (() -> Void)?
+    private var queue: [QueuedNotification] = []
+    private var pendingReplacement: QueuedNotification?
+    private var isReplacingCurrent = false
 
     public init() {}
 
-    /// Presents `configuration`. Any currently visible notification is removed first.
+    /// Presents `configuration`. Any currently visible notification is dismissed first.
     /// Returns a token whose `dismiss()` removes *this* notification (a no-op if it
     /// has already been replaced or dismissed). `onDismiss` fires exactly once, whenever
     /// this presentation ends (auto-dismiss timer, swipe, programmatic `dismiss()`, or
     /// being replaced by a subsequent `show`).
     @discardableResult
-    public func show(_ configuration: Isle.Configuration, onDismiss: (() -> Void)? = nil) -> IsleToken {
+    public func show(
+        _ configuration: Isle.Configuration,
+        behavior: Isle.PresentationBehavior = .replace,
+        onDismiss: (() -> Void)? = nil
+    ) -> IsleToken {
+        switch behavior {
+        case .replace:
+            queue.removeAll()
+            return replaceCurrent(with: configuration, onDismiss: onDismiss)
+        case .enqueue:
+            guard currentView != nil else {
+                return present(configuration, onDismiss: onDismiss)
+            }
+            let id = UUID()
+            queue.append(QueuedNotification(id: id, configuration: configuration, onDismiss: onDismiss))
+            return IsleToken { [weak self] in
+                guard let self else { return }
+                let queuedCount = self.queue.count
+                self.queue.removeAll { $0.id == id }
+                if self.queue.count == queuedCount {
+                    self.dismiss(ifTokenID: id)
+                }
+            }
+        case .bounceIfSame:
+            if let currentConfiguration, currentConfiguration.matches(configuration), let currentView {
+                currentView.animateRepeatBounce()
+                if let style = configuration.haptic {
+                    UIImpactFeedbackGenerator(style: style).impactOccurred()
+                }
+                scheduleAutoDismiss(for: configuration, advancesPresentationID: false)
+                return IsleToken { [weak self] in
+                    self?.dismiss(ifPresentationID: self?.presentationID ?? -1)
+                }
+            }
+            queue.removeAll()
+            return replaceCurrent(with: configuration, onDismiss: onDismiss)
+        }
+    }
+
+    private func replaceCurrent(
+        with configuration: Isle.Configuration,
+        onDismiss: (() -> Void)? = nil
+    ) -> IsleToken {
+        guard let view = currentView else {
+            return present(configuration, onDismiss: onDismiss)
+        }
+
+        let replacement = QueuedNotification(
+            id: UUID(),
+            configuration: configuration,
+            onDismiss: onDismiss
+        )
+        pendingReplacement = replacement
+
+        if isReplacingCurrent {
+            return IsleToken { [weak self] in
+                guard let self else { return }
+                if self.pendingReplacement?.id == replacement.id {
+                    self.pendingReplacement = nil
+                    return
+                }
+                self.dismiss(ifTokenID: replacement.id)
+            }
+        }
+
+        let id = presentationID
+        dismissTimer?.invalidate()
+        dismissTimer = nil
+        isReplacingCurrent = true
+        view.animateOut { [weak self] in
+            guard let self, self.presentationID == id else { return }
+            let replacementToPresent = self.pendingReplacement
+            self.tearDown()
+            self.isReplacingCurrent = false
+            self.pendingReplacement = nil
+            guard let replacementToPresent else { return }
+            _ = self.present(
+                replacementToPresent.configuration,
+                tokenID: replacementToPresent.id,
+                onDismiss: replacementToPresent.onDismiss
+            )
+        }
+
+        return IsleToken { [weak self] in
+            guard let self else { return }
+            if self.pendingReplacement?.id == replacement.id {
+                self.pendingReplacement = nil
+                return
+            }
+            self.dismiss(ifTokenID: replacement.id)
+        }
+    }
+
+    private func present(
+        _ configuration: Isle.Configuration,
+        tokenID: UUID = UUID(),
+        onDismiss: (() -> Void)? = nil
+    ) -> IsleToken {
         tearDown()
         self.onDismiss = onDismiss
+        currentTokenID = tokenID
+        currentConfiguration = configuration
 
         guard let scene = Self.activeWindowScene else {
+            currentTokenID = nil
+            currentConfiguration = nil
             return IsleToken(onDismiss: {})
         }
 
@@ -68,7 +174,6 @@ public final class IsleNotificationCenter {
             view.leadingAnchor.constraint(greaterThanOrEqualTo: window.leadingAnchor, constant: sideInset),
             view.trailingAnchor.constraint(lessThanOrEqualTo: window.trailingAnchor, constant: -sideInset)
         ])
-        window.layoutIfNeeded()
         self.currentView = view
 
         if configuration.allowsSwipeToDismiss {
@@ -81,21 +186,25 @@ public final class IsleNotificationCenter {
             UIImpactFeedbackGenerator(style: style).impactOccurred()
         }
 
+        // Defer the expensive layout measurement to the next run loop so the
+        // notification can animate in without blocking the main thread. The
+        // animation starts from a collapsed transform so the missing width
+        // constraint is invisible during the spring animation.
         view.prepareForPresentation()
         view.animateIn()
-
-        presentationID += 1
-        let idForThisPresentation = presentationID
-        if let seconds = configuration.autoDismissAfter {
-            dismissTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.dismiss(ifPresentationID: idForThisPresentation)
-                }
+        RunLoop.current.perform {
+            MainActor.assumeIsolated {
+                window.layoutIfNeeded()
+                view.applyDeferredCompactWrapWidth()
+                window.layoutIfNeeded()
             }
         }
 
+        scheduleAutoDismiss(for: configuration, advancesPresentationID: true)
+        let idForThisPresentation = presentationID
+
         return IsleToken { [weak self] in
-            self?.dismiss(ifPresentationID: idForThisPresentation)
+            self?.dismiss(ifTokenID: tokenID, presentationID: idForThisPresentation)
         }
     }
 
@@ -104,10 +213,16 @@ public final class IsleNotificationCenter {
         dismiss(ifPresentationID: presentationID)
     }
 
-    // MARK: - Private
-
-    private func dismiss(ifPresentationID id: Int) {
-        guard id == presentationID, let view = currentView else { return }
+    /// Dismisses the visible notification and clears any queued notifications.
+    public func dismissAll() {
+        queue.removeAll()
+        pendingReplacement = nil
+        isReplacingCurrent = false
+        guard let view = currentView else {
+            tearDown()
+            return
+        }
+        let id = presentationID
         dismissTimer?.invalidate()
         dismissTimer = nil
         view.animateOut { [weak self] in
@@ -116,17 +231,108 @@ public final class IsleNotificationCenter {
         }
     }
 
+    /// Presents a confirmation prompt using the same Isle overlay lifecycle as
+    /// notifications. The prompt stays visible until the user taps one of the
+    /// actions, swipes it away, or it is dismissed programmatically.
+    @discardableResult
+    public func showConfirmation(
+        title: String,
+        message: String? = nil,
+        confirmTitle: String = "OK",
+        cancelTitle: String = "Cancel",
+        haptic: UIImpactFeedbackGenerator.FeedbackStyle? = .soft,
+        onConfirm: @escaping () -> Void,
+        onCancel: (() -> Void)? = nil
+    ) -> IsleToken {
+        var token: IsleToken?
+        let confirmationView = Isle.makeConfirmationView(
+            title: title,
+            message: message,
+            confirmTitle: confirmTitle,
+            cancelTitle: cancelTitle,
+            onConfirm: {
+                onConfirm()
+                token?.dismiss()
+            },
+            onCancel: {
+                onCancel?()
+                token?.dismiss()
+            }
+        )
+
+        let configuration = Isle.Configuration(
+            presentation: .expanded,
+            content: Isle.Content(centerView: confirmationView),
+            autoDismissAfter: nil,
+            allowsSwipeToDismiss: true,
+            haptic: haptic
+        )
+        let presentedToken = show(configuration, behavior: .replace)
+        token = presentedToken
+        return presentedToken
+    }
+
+    // MARK: - Private
+
+    private func scheduleAutoDismiss(for configuration: Isle.Configuration, advancesPresentationID: Bool) {
+        dismissTimer?.invalidate()
+        dismissTimer = nil
+        if advancesPresentationID {
+            presentationID += 1
+        }
+        let idForThisPresentation = presentationID
+        if let seconds = configuration.autoDismissAfter {
+            dismissTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.dismiss(ifPresentationID: idForThisPresentation)
+                }
+            }
+        }
+    }
+
+    private func dismiss(ifPresentationID id: Int) {
+        guard id == presentationID, !isReplacingCurrent, let view = currentView else { return }
+        dismissTimer?.invalidate()
+        dismissTimer = nil
+        view.animateOut { [weak self] in
+            guard let self, self.presentationID == id else { return }
+            self.tearDown()
+            self.presentNextIfNeeded()
+        }
+    }
+
+    private func dismiss(ifTokenID tokenID: UUID, presentationID id: Int? = nil) {
+        if pendingReplacement?.id == tokenID {
+            pendingReplacement = nil
+            return
+        }
+        guard currentTokenID == tokenID else { return }
+        if let id {
+            dismiss(ifPresentationID: id)
+        } else {
+            dismiss()
+        }
+    }
+
     private func tearDown() {
         dismissTimer?.invalidate()
         dismissTimer = nil
         currentView?.removeFromSuperview()
         currentView = nil
+        currentTokenID = nil
+        currentConfiguration = nil
         window?.isHidden = true
         window = nil
 
         let callback = onDismiss
         onDismiss = nil
         callback?()
+    }
+
+    private func presentNextIfNeeded() {
+        guard !queue.isEmpty else { return }
+        let next = queue.removeFirst()
+        _ = present(next.configuration, tokenID: next.id, onDismiss: next.onDismiss)
     }
 
     @objc private func handleSwipeUp() {
@@ -136,6 +342,53 @@ public final class IsleNotificationCenter {
     private static var activeWindowScene: UIWindowScene? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         return scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+    }
+}
+
+private struct QueuedNotification {
+    let id: UUID
+    let configuration: Isle.Configuration
+    let onDismiss: (() -> Void)?
+}
+
+private extension Isle.Configuration {
+    func matches(_ other: Isle.Configuration) -> Bool {
+        if let id, let otherID = other.id {
+            return id == otherID
+        }
+        return id == nil
+            && other.id == nil
+            && presentation == other.presentation
+            && content.matches(other.content)
+    }
+}
+
+private extension Isle.Content {
+    func matches(_ other: Isle.Content) -> Bool {
+        leadingImage == other.leadingImage
+            && leadingImageTintColor == other.leadingImageTintColor
+            && title == other.title
+            && subtitle == other.subtitle
+            && trailingAccessory.matches(other.trailingAccessory)
+            && showsActivityIndicator == other.showsActivityIndicator
+            && leadingView === other.leadingView
+            && centerView === other.centerView
+            && trailingView === other.trailingView
+    }
+}
+
+private extension Optional where Wrapped == Isle.Accessory {
+    func matches(_ other: Isle.Accessory?) -> Bool {
+        switch (self, other) {
+        case (.none, .none):
+            return true
+        case let (.some(.text(left)), .some(.text(right))):
+            return left == right
+        case let (.some(.image(leftImage, leftTint)), .some(.image(rightImage, rightTint))):
+            return leftImage == rightImage && leftTint == rightTint
+        default:
+            return false
+        }
     }
 }
 

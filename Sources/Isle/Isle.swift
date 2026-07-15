@@ -7,6 +7,18 @@ import UIKit
 /// Live Activity. It is foreground-only and needs no widget extension or entitlements.
 public enum Isle {
 
+    /// How `IsleNotificationCenter.show` handles a new notification when another one
+    /// is already visible.
+    public enum PresentationBehavior {
+        /// Dismiss the current notification and show the new one immediately.
+        case replace
+        /// Keep the current notification visible and show the new one after it dismisses.
+        case enqueue
+        /// If the visible notification matches the new one, replay attention animation
+        /// instead of replacing it. Otherwise behaves like `.replace`.
+        case bounceIfSame
+    }
+
     /// The visual form a notification takes.
     public enum Presentation {
         /// Big card that drops from the island: leading image, title, subtitle, trailing accessory.
@@ -75,6 +87,9 @@ public enum Isle {
     /// - `.compactWrap`: `leadingImage` + `title` (left), `trailingAccessory` (right). `subtitle` ignored.
     /// - `.compactPill`: `leadingImage` + `title` (centered). `subtitle` + `trailingAccessory` ignored.
     public struct Configuration {
+        /// Optional stable identity used to detect repeated notifications. Set this for
+        /// repeatable states such as `"network-error"` when using `.bounceIfSame`.
+        public var id: String?
         public var presentation: Presentation
         public var content: Content
         /// Seconds before auto-dismiss. `nil` keeps it until dismissed programmatically.
@@ -84,17 +99,53 @@ public enum Isle {
         public var haptic: UIImpactFeedbackGenerator.FeedbackStyle?
 
         public init(
+            id: String? = nil,
             presentation: Presentation,
             content: Content,
             autoDismissAfter: TimeInterval? = 3,
             allowsSwipeToDismiss: Bool = true,
             haptic: UIImpactFeedbackGenerator.FeedbackStyle? = .soft
         ) {
+            self.id = id
             self.presentation = presentation
             self.content = content
             self.autoDismissAfter = autoDismissAfter
             self.allowsSwipeToDismiss = allowsSwipeToDismiss
             self.haptic = haptic
+        }
+    }
+
+    /// Everything needed to present Isle's camera overlay.
+    public struct CameraConfiguration: Sendable {
+        public var permissionTitle: String
+        public var permissionMessage: String?
+        public var permissionConfirmTitle: String
+        public var permissionCancelTitle: String
+        public var allowsSwipeToDismiss: Bool
+        public var dismissesAfterCapture: Bool
+        /// Impact haptic played when the camera panel is presented. `nil` plays no haptic.
+        public var haptic: UIImpactFeedbackGenerator.FeedbackStyle?
+        /// Impact haptic played when the shutter button is tapped. `nil` plays no haptic.
+        public var captureHaptic: UIImpactFeedbackGenerator.FeedbackStyle?
+
+        public init(
+            permissionTitle: String = "Camera Access",
+            permissionMessage: String? = "Allow Isle to open the camera?",
+            permissionConfirmTitle: String = "OK",
+            permissionCancelTitle: String = "Cancel",
+            allowsSwipeToDismiss: Bool = true,
+            dismissesAfterCapture: Bool = true,
+            haptic: UIImpactFeedbackGenerator.FeedbackStyle? = .soft,
+            captureHaptic: UIImpactFeedbackGenerator.FeedbackStyle? = .medium
+        ) {
+            self.permissionTitle = permissionTitle
+            self.permissionMessage = permissionMessage
+            self.permissionConfirmTitle = permissionConfirmTitle
+            self.permissionCancelTitle = permissionCancelTitle
+            self.allowsSwipeToDismiss = allowsSwipeToDismiss
+            self.dismissesAfterCapture = dismissesAfterCapture
+            self.haptic = haptic
+            self.captureHaptic = captureHaptic
         }
     }
 }
@@ -141,6 +192,25 @@ extension Isle {
 
         static let expandedCornerRadius: CGFloat = 28
         static let compactCornerRadius: CGFloat = islandHeight / 2  // 18.5
+        /// Matches the modern iPhone display corner radius closely enough for an
+        /// overlay that attaches to the device edge.
+        static let cameraCornerRadius: CGFloat = 39
+        /// Physical screen corner radius so full-width compact notifications
+        /// blend seamlessly with the device display on notch / flat-top devices.
+        /// Derived from the top safe-area inset which encodes the device class.
+        static func screenCornerRadius(topSafeAreaInset: CGFloat) -> CGFloat {
+            switch cutoutKind(topSafeAreaInset: topSafeAreaInset) {
+            case .dynamicIsland: return 47
+            case .notch:         return 47
+            case .none:          return 0 
+            }
+        }
+        static func compactWrapEdgeInset(topSafeAreaInset: CGFloat) -> CGFloat {
+            max(sideInset, screenCornerRadius(topSafeAreaInset: topSafeAreaInset) - compactCornerRadius)
+        }
+        static let compactWrapTextMaxWidth: CGFloat = 90
+        static let compactPillTextMaxWidth: CGFloat = 120
+        static let compactTrailingTextMaxWidth: CGFloat = 64
         static let sideInset: CGFloat = 12
         static let contentInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
 
@@ -191,6 +261,10 @@ extension Isle {
             case .dynamicIsland: return islandHeight
             case .notch, .none: return notchHeight
             }
+        }
+
+        static func cameraHeight(for windowHeight: CGFloat) -> CGFloat {
+            max(320, windowHeight * 0.5)
         }
     }
 }

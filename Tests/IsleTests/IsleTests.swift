@@ -12,8 +12,19 @@ struct IsleConfigurationTests {
             presentation: .expanded,
             content: Isle.Content(title: "Hi")
         )
+        #expect(config.id == nil)
         #expect(config.autoDismissAfter == 3)
         #expect(config.allowsSwipeToDismiss == true)
+    }
+
+    @Test("Configuration accepts a stable identifier for repeat detection")
+    func configurationIdentifier() {
+        let config = Isle.Configuration(
+            id: "network-error",
+            presentation: .compactPill,
+            content: Isle.Content(title: "Offline")
+        )
+        #expect(config.id == "network-error")
     }
 
     @Test("Content defaults: all optionals nil")
@@ -35,6 +46,18 @@ struct IsleConfigurationTests {
         #expect(config.content.leadingImageTintColor == IsleColors.critical)
         #expect(config.content.leadingImage != nil)
     }
+
+    @Test("Camera configuration defaults are permission-first and dismiss after capture")
+    func cameraConfigurationDefaults() {
+        let config = Isle.CameraConfiguration()
+        #expect(config.permissionTitle == "Camera Access")
+        #expect(config.permissionConfirmTitle == "OK")
+        #expect(config.permissionCancelTitle == "Cancel")
+        #expect(config.allowsSwipeToDismiss == true)
+        #expect(config.dismissesAfterCapture == true)
+        #expect(config.haptic == .soft)
+        #expect(config.captureHaptic == .medium)
+    }
 }
 
 @Suite("Isle — Metrics")
@@ -51,6 +74,12 @@ struct IsleMetricsTests {
         #expect(Isle.Metrics.hasDynamicIsland(topSafeAreaInset: 50) == false)
         #expect(Isle.Metrics.hasDynamicIsland(topSafeAreaInset: 47) == false)
         #expect(Isle.Metrics.hasDynamicIsland(topSafeAreaInset: 20) == false)
+    }
+
+    @Test("Camera height is half the window with a practical minimum")
+    func cameraHeight() {
+        #expect(Isle.Metrics.cameraHeight(for: 800) == 400)
+        #expect(Isle.Metrics.cameraHeight(for: 500) == 320)
     }
 }
 
@@ -113,6 +142,14 @@ struct IsleViewTests {
         root === target || root.subviews.contains { contains($0, target) }
     }
 
+    private func resolveStyle(_ style: UIUserInterfaceStyle, for view: UIView) {
+        let parent = UIViewController()
+        parent.overrideUserInterfaceStyle = style
+        parent.view.addSubview(view)
+        view.frame = CGRect(x: 0, y: 0, width: 240, height: 80)
+        view.layoutIfNeeded()
+    }
+
     @Test("Custom leading/center/trailing views are used in the expanded layout")
     func expandedCustomViews() {
         let leading = UIView(), center = UIView(), trailing = UIView()
@@ -143,6 +180,408 @@ struct IsleViewTests {
             topSafeAreaInset: 59)
         #expect(contains(view, leading))
         #expect(contains(view, trailing))
+    }
+
+    @Test("Compact wrap stays snug on Dynamic Island devices")
+    func compactWrapSnugOnDynamicIsland() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    leadingImage: UIImage(systemName: "timer"),
+                    title: "0:12",
+                    trailingAccessory: .text("REC")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+        let size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        #expect(size.width < 320)
+    }
+
+    @Test("Compact wrap timer width fits content on Dynamic Island devices")
+    func compactWrapTimerWidthFitsContentOnDynamicIsland() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    leadingImage: UIImage(systemName: "timer"),
+                    title: "12:34",
+                    trailingAccessory: .text("REC")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+        let size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        #expect(size.width < 340)
+    }
+
+    @Test("Long compact title uses marquee so it can scroll")
+    func longCompactTitleUsesMarquee() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactPill,
+                content: .init(title: "A very long title that should scroll instead of clipping")
+            ),
+            topSafeAreaInset: 59
+        )
+
+        func containsMarquee(_ candidate: UIView) -> Bool {
+            candidate is IsleMarqueeView || candidate.subviews.contains(where: containsMarquee)
+        }
+
+        #expect(containsMarquee(view))
+    }
+
+    @Test("Short compact trailing text stays a fixed label")
+    func shortCompactTrailingTextStaysFixedLabel() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    title: "Playing",
+                    trailingAccessory: .text("REC")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+
+        func marqueeCount(_ candidate: UIView) -> Int {
+            (candidate is IsleMarqueeView ? 1 : 0) + candidate.subviews.map(marqueeCount).reduce(0, +)
+        }
+
+        #expect(marqueeCount(view) == 0)
+    }
+
+    @Test("Long compact trailing text uses marquee so it can scroll")
+    func longCompactTrailingTextUsesMarquee() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    title: "Playing",
+                    trailingAccessory: .text("Recording in progress")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+
+        func containsMarquee(_ candidate: UIView) -> Bool {
+            candidate is IsleMarqueeView || candidate.subviews.contains(where: containsMarquee)
+        }
+
+        #expect(containsMarquee(view))
+    }
+
+    @Test("Compact wrap marquee width stays inside device corner on Dynamic Island devices")
+    func compactWrapMarqueeWidthStaysInsideDeviceCorner() {
+        let marquee = IsleMarqueeView(text: "Playing: Long Song Title That Scrolls")
+        marquee.maxWidth = Isle.Metrics.compactWrapTextMaxWidth
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    trailingAccessory: .text("REC"),
+                    leadingView: marquee
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+        let parent = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 120))
+        parent.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.centerXAnchor.constraint(equalTo: parent.centerXAnchor),
+            view.topAnchor.constraint(equalTo: parent.topAnchor, constant: Isle.Metrics.shapeTopOffset(topSafeAreaInset: 59)),
+            view.leadingAnchor.constraint(greaterThanOrEqualTo: parent.leadingAnchor, constant: Isle.Metrics.sideInset),
+            view.trailingAnchor.constraint(lessThanOrEqualTo: parent.trailingAnchor, constant: -Isle.Metrics.sideInset)
+        ])
+
+        parent.layoutIfNeeded()
+        view.applyDeferredCompactWrapWidth()
+        parent.layoutIfNeeded()
+
+        let maximumWidth = parent.bounds.width - (Isle.Metrics.compactWrapEdgeInset(topSafeAreaInset: 59) * 2)
+        #expect(view.bounds.width <= maximumWidth + 0.5)
+    }
+
+    @Test("Compact wrap long built-in text stays close to island width")
+    func compactWrapLongBuiltInTextStaysCloseToIslandWidth() {
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    title: "Now Playing: Long Song Title That Scrolls",
+                    trailingAccessory: .text("REC")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+        let parent = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 120))
+        parent.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.centerXAnchor.constraint(equalTo: parent.centerXAnchor),
+            view.topAnchor.constraint(equalTo: parent.topAnchor, constant: Isle.Metrics.shapeTopOffset(topSafeAreaInset: 59)),
+            view.leadingAnchor.constraint(greaterThanOrEqualTo: parent.leadingAnchor, constant: Isle.Metrics.sideInset),
+            view.trailingAnchor.constraint(lessThanOrEqualTo: parent.trailingAnchor, constant: -Isle.Metrics.sideInset)
+        ])
+
+        parent.layoutIfNeeded()
+        view.applyDeferredCompactWrapWidth()
+        parent.layoutIfNeeded()
+
+        #expect(view.bounds.width <= 270)
+    }
+
+    @Test("Marquee lays out overflowing text at full text width")
+    func marqueeUsesFullTextWidthWhenOverflowing() {
+        let marquee = IsleMarqueeView(text: "Now Playing: Long Song Title That Scrolls")
+        marquee.maxWidth = Isle.Metrics.compactWrapTextMaxWidth
+        marquee.frame = CGRect(x: 0, y: 0, width: Isle.Metrics.compactWrapTextMaxWidth, height: 24)
+        marquee.layoutIfNeeded()
+
+        func allSubviews(of root: UIView) -> [UIView] {
+            root.subviews + root.subviews.flatMap(allSubviews)
+        }
+
+        let label = allSubviews(of: marquee).compactMap { $0 as? UILabel }.first
+        #expect(label?.bounds.width ?? 0 > marquee.bounds.width)
+    }
+
+    @Test("Compact wrap leading content ends at the cutout leading edge")
+    func compactWrapLeadingContentAlignsWithCutoutLeadingEdge() {
+        let leading = UILabel()
+        leading.text = "0:12"
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    leadingView: leading,
+                    trailingAccessory: .text("REC")
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+
+        let size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        view.frame = CGRect(origin: .zero, size: size)
+        view.layoutIfNeeded()
+
+        let cutoutLeadingEdge = size.width / 2 - Isle.Metrics.cutoutWidth(topSafeAreaInset: 59) / 2
+        #expect(abs(leading.frame.maxX - cutoutLeadingEdge) < 0.5)
+    }
+
+    @Test("Compact wrap trailing content is fixed to the trailing edge")
+    func compactWrapTrailingContentAlignsWithTrailingEdge() {
+        let trailing = UILabel()
+        trailing.text = "REC"
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    leadingImage: UIImage(systemName: "timer"),
+                    title: "0:12",
+                    trailingView: trailing
+                )
+            ),
+            topSafeAreaInset: 59
+        )
+
+        let size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        view.frame = CGRect(origin: .zero, size: size)
+        view.layoutIfNeeded()
+
+        let expectedTrailing = size.width - Isle.Metrics.contentInsets.right
+        #expect(abs(trailing.frame.maxX - expectedTrailing) < 0.5)
+    }
+
+    @Test("Notification container shows a light border in dark mode")
+    func notificationBorderInDarkMode() {
+        let view = makeView(.expanded)
+        resolveStyle(.dark, for: view)
+        view.traitCollectionDidChange(nil)
+
+        #expect(view.layer.borderWidth > 0)
+        #expect(view.layer.borderColor == IsleColors.darkModeBorder.cgColor)
+    }
+
+    @Test("Notification container has no border in light mode")
+    func notificationBorderInLightMode() {
+        let view = makeView(.expanded)
+        resolveStyle(.light, for: view)
+        view.traitCollectionDidChange(nil)
+
+        #expect(view.layer.borderWidth == 0)
+        #expect(view.layer.borderColor == nil)
+    }
+}
+
+@MainActor
+@Suite("Isle — confirmation")
+struct IsleConfirmationTests {
+
+    private func allSubviews(of root: UIView) -> [UIView] {
+        root.subviews + root.subviews.flatMap(allSubviews)
+    }
+
+    @Test("Confirmation view includes confirm and cancel buttons")
+    func confirmationButtons() {
+        let view = Isle.makeConfirmationView(
+            title: "Camera Access",
+            message: "Allow Isle to use the camera?",
+            confirmTitle: "OK",
+            cancelTitle: "Cancel",
+            onConfirm: {},
+            onCancel: {}
+        )
+        let buttons = allSubviews(of: view).compactMap { $0 as? UIButton }
+        #expect(buttons.count == 2)
+        #expect(buttons.contains { $0.accessibilityLabel == "OK" })
+        #expect(buttons.contains { $0.accessibilityLabel == "Cancel" })
+    }
+
+    @Test("Confirmation buttons invoke their actions")
+    func confirmationButtonActions() {
+        var didConfirm = false
+        var didCancel = false
+        let view = Isle.makeConfirmationView(
+            title: "Camera Access",
+            message: "Allow Isle to use the camera?",
+            confirmTitle: "OK",
+            cancelTitle: "Cancel",
+            onConfirm: { didConfirm = true },
+            onCancel: { didCancel = true }
+        )
+        let buttons = allSubviews(of: view).compactMap { $0 as? UIButton }
+
+        buttons.first { $0.accessibilityLabel == "OK" }?.sendActions(for: .touchUpInside)
+        buttons.first { $0.accessibilityLabel == "Cancel" }?.sendActions(for: .touchUpInside)
+
+        #expect(didConfirm)
+        #expect(didCancel)
+    }
+
+    @Test("Confirmation message label is hidden when message is nil")
+    func confirmationWithoutMessage() {
+        let view = Isle.makeConfirmationView(
+            title: "Camera Access",
+            message: nil,
+            confirmTitle: "OK",
+            cancelTitle: "Cancel",
+            onConfirm: {},
+            onCancel: {}
+        )
+        let labels = allSubviews(of: view).compactMap { $0 as? UILabel }
+        #expect(labels.contains { $0.text == "Camera Access" })
+        #expect(labels.contains { $0.text == nil && $0.isHidden })
+    }
+}
+
+@MainActor
+@Suite("IsleCameraView — appearance")
+struct IsleCameraViewTests {
+
+    private func allSubviews(of root: UIView) -> [UIView] {
+        root.subviews + root.subviews.flatMap(allSubviews)
+    }
+
+    private func makeView() -> IsleCameraView {
+        IsleCameraView(
+            configuration: .init(),
+            topSafeAreaInset: 59,
+            configuresSession: false,
+            onCapture: { _ in },
+            onDismiss: {},
+            onError: { _ in }
+        )
+    }
+
+    private func resolveStyle(_ style: UIUserInterfaceStyle, for view: UIView) {
+        let parent = UIViewController()
+        parent.overrideUserInterfaceStyle = style
+        parent.view.addSubview(view)
+        view.frame = CGRect(x: 0, y: 0, width: 320, height: 360)
+        view.layoutIfNeeded()
+    }
+
+    @Test("Camera view uses camera corner radius and black background")
+    func cameraContainerAppearance() {
+        let view = makeView()
+        #expect(view.layer.cornerRadius == Isle.Metrics.cameraCornerRadius)
+        #expect(view.backgroundColor == IsleColors.background)
+    }
+
+    @Test("Camera view rounds all corners on Dynamic Island devices")
+    func cameraIslandCorners() {
+        let view = IsleCameraView(
+            configuration: .init(),
+            topSafeAreaInset: 59,
+            configuresSession: false,
+            onCapture: { _ in },
+            onDismiss: {},
+            onError: { _ in }
+        )
+        #expect(view.layer.maskedCorners == [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+    }
+
+    @Test("Camera view rounds only bottom corners on notch devices")
+    func cameraNotchCorners() {
+        let view = IsleCameraView(
+            configuration: .init(),
+            topSafeAreaInset: 47,
+            configuresSession: false,
+            onCapture: { _ in },
+            onDismiss: {},
+            onError: { _ in }
+        )
+        #expect(view.layer.maskedCorners == [.layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+    }
+
+    @Test("Camera view includes shutter and close buttons")
+    func cameraControls() {
+        let view = makeView()
+        let buttons = allSubviews(of: view).compactMap { $0 as? UIButton }
+        #expect(buttons.contains { $0.accessibilityLabel == "Take Photo" })
+        #expect(buttons.contains { $0.accessibilityLabel == "Close Camera" })
+    }
+
+    @Test("Camera close button invokes dismiss")
+    func closeButtonDismisses() {
+        var didDismiss = false
+        let view = IsleCameraView(
+            configuration: .init(),
+            topSafeAreaInset: 59,
+            configuresSession: false,
+            onCapture: { _ in },
+            onDismiss: { didDismiss = true },
+            onError: { _ in }
+        )
+        let closeButton = allSubviews(of: view)
+            .compactMap { $0 as? UIButton }
+            .first { $0.accessibilityLabel == "Close Camera" }
+
+        closeButton?.sendActions(for: .touchUpInside)
+
+        #expect(didDismiss)
+    }
+
+    @Test("Camera container shows a light border in dark mode")
+    func cameraBorderInDarkMode() {
+        let view = makeView()
+        resolveStyle(.dark, for: view)
+        view.traitCollectionDidChange(nil)
+
+        #expect(view.layer.borderWidth > 0)
+        #expect(view.layer.borderColor == IsleColors.darkModeBorder.cgColor)
+    }
+
+    @Test("Camera container has no border in light mode")
+    func cameraBorderInLightMode() {
+        let view = makeView()
+        resolveStyle(.light, for: view)
+        view.traitCollectionDidChange(nil)
+
+        #expect(view.layer.borderWidth == 0)
+        #expect(view.layer.borderColor == nil)
     }
 }
 #endif

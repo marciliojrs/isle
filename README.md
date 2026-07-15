@@ -1,11 +1,11 @@
 # Isle
 
 <p align="center">
-  <img src="isle.png" width="128" alt="Isle app icon">
+  <img src="isle.png" width="256" alt="Isle app icon">
 </p>
 
 <p align="center">
-  In-app notifications styled like the iPhone Dynamic Island.
+  Dynamic-Island-inspired top overlays for notifications, confirmations, and camera capture.
 </p>
 
 <p align="center">
@@ -17,28 +17,35 @@
   <img alt="Version" src="https://img.shields.io/github/v/tag/marciliojrs/isle?label=tag">
 </p>
 
-Isle draws a fake, in-app Dynamic-Island-styled notification overlay on top of your app's own content. It is **not** an ActivityKit Live Activity: it needs no widget extension, no entitlements, and works purely in the foreground on any iPhone, whether it has an island, a notch, or a flat top.
+Isle draws foreground-only, Dynamic-Island-inspired overlays on top of your app's own content. Use it for tactile notifications, lightweight confirmation prompts, and a compact top camera panel without building a widget extension or adopting ActivityKit. It works on any iPhone, whether it has an island, a notch, or a flat top.
 
-> **Not affiliated with Apple.** "Dynamic Island" is a trademark of Apple Inc. Isle merely mimics its visual language for in-app notifications; it does not use, extend, or depend on ActivityKit or any private API.
+> **Not affiliated with Apple.** "Dynamic Island" is a trademark of Apple Inc. Isle mimics parts of its visual language for in-app overlays; it does not use, extend, or depend on ActivityKit or any private API.
 
 ## Why Isle?
 
-Use Isle when you want a focused, tactile notification that feels at home on modern iOS without adding infrastructure:
+Use Isle when you want focused, tactile top-of-screen experiences that feel at home on modern iOS without adding infrastructure:
 
-- Foreground-only notifications for UIKit and SwiftUI apps
-- Dynamic-Island-inspired layout without ActivityKit or private API
+- Foreground-only overlays for UIKit and SwiftUI apps
+- Dynamic-Island-inspired layout and animation without ActivityKit or private API
 - Device-aware geometry for island, notch, and flat-top devices
+- Notifications, confirmation prompts, and camera capture from the top overlay
+- Auto-scrolling marquee text for long content in compact slots
 - Custom `UIView` slots, plus SwiftUI support through `HostingView`
 - No third-party dependencies
 
 ## Features
 
-- Three presentations: `expanded`, `compactWrap`, and `compactPill`
-- Grow-from-the-island animation on present and dismiss
-- Status bar hiding while a notification is visible
+- Notification presentations: `expanded`, `compactWrap`, and `compactPill`
+- Confirmation prompts with OK and Cancel actions
+- Top camera panel with permission confirmation, capture callback, and SwiftUI binding support
+- Auto-scrolling marquee text for long content in compact slots
+- Activity indicator option for inline progress indicators
+- Device-aware present/dismiss animations for Dynamic Island, notch, and flat-top devices
+- Status bar hiding while an overlay is visible
 - Auto-dismiss on a timer, swipe-to-dismiss, or programmatic dismissal via `IsleToken`
 - Built-in connection issue preset
 - UIKit-first API with declarative SwiftUI modifiers
+- Comprehensive test suite
 - MIT licensed and Swift Package Manager ready
 
 ## Screenshots
@@ -46,6 +53,10 @@ Use Isle when you want a focused, tactile notification that feels at home on mod
 | Expanded | Compact Pill | Compact Wrap |
 |:---:|:---:|:---:|
 | <img src="Screenshots/expanded.png" width="240" alt="Expanded Isle notification"> | <img src="Screenshots/compact-pill.png" width="240" alt="Compact pill Isle notification"> | <img src="Screenshots/compact-wrap.png" width="240" alt="Compact wrap Isle notification"> |
+
+<p align="center">
+  <img src="isle_demo_screenshot.png" width="600" alt="Isle demo app showcasing all features">
+</p>
 
 ## Requirements
 
@@ -198,7 +209,92 @@ You can also dismiss whatever is currently visible:
 IsleNotificationCenter.shared.dismiss()
 ```
 
+Or clear the visible notification and anything waiting behind it:
+
+```swift
+IsleNotificationCenter.shared.dismissAll()
+```
+
 Notifications auto-dismiss after `Configuration.autoDismissAfter` seconds. The default is `3`; pass `nil` to keep the notification visible until dismissed. Swipe-up-to-dismiss is enabled by default through `allowsSwipeToDismiss`.
+
+## Presentation Behavior
+
+By default, `show` replaces the current notification. Use `behavior: .enqueue` to present after the current notification dismisses:
+
+```swift
+IsleNotificationCenter.shared.show(first)
+IsleNotificationCenter.shared.show(second, behavior: .enqueue)
+```
+
+For repeated states, give the notification a stable `id` and use `.bounceIfSame`. If that same notification is already visible, Isle plays a small attention bounce instead of replacing it:
+
+```swift
+let error = Isle.Configuration(
+    id: "network-error",
+    presentation: .compactPill,
+    content: .init(title: "You are offline")
+)
+
+IsleNotificationCenter.shared.show(error, behavior: .bounceIfSame)
+```
+
+## Confirmation Prompts
+
+Use `showConfirmation` for short, permission-style prompts that should appear from
+the island with explicit OK and Cancel actions:
+
+```swift
+IsleNotificationCenter.shared.showConfirmation(
+    title: "Camera Access",
+    message: "Allow Isle to open the camera?",
+    confirmTitle: "OK",
+    cancelTitle: "Cancel",
+    onConfirm: {
+        // Request camera permission or continue with the camera flow.
+    },
+    onCancel: {
+        // Keep the current screen unchanged.
+    }
+)
+```
+
+## Camera
+
+Use `IsleCameraCenter` to open a top camera panel from the island. Isle shows its
+own OK/Cancel confirmation before the first system camera permission request:
+
+```swift
+IsleCameraCenter.shared.showCamera { image in
+    // Use the captured UIImage.
+} onError: { error in
+    // Handle denied permission or camera setup failures.
+}
+```
+
+SwiftUI apps can bind camera presentation to state:
+
+```swift
+struct ContentView: View {
+    @State private var showCamera = false
+    @State private var capturedImage: UIImage?
+
+    var body: some View {
+        Button("Open Camera") {
+            showCamera = true
+        }
+        .isleCamera(isPresented: $showCamera) { image in
+            capturedImage = image
+        }
+    }
+}
+```
+
+Host apps must include `NSCameraUsageDescription` in their Info.plist before using
+the camera API.
+
+While the camera panel is visible, Isle hides the status bar and plays haptics on
+presentation and shutter tap by default. Pass `haptic: nil` or `captureHaptic: nil`
+in `Isle.CameraConfiguration` to disable either feedback.
 
 ## SwiftUI
 
@@ -261,12 +357,35 @@ struct ContentView: View {
 
 Isle is documented with Swift DocC-compatible symbol comments and is configured for Swift Package Index documentation through `.spi.yml`.
 
-Useful entry points:
+### Example App
+
+The `Example/` directory contains a demo app showcasing all Isle features across five scenes:
+
+- **Music Scene**: AirPods connect/disconnect notifications and now-playing compact wrap
+- **Phone Scene**: Call notifications with various presentations
+- **Timer Scene**: Timer and stopwatch notifications with marquee text
+- **Maps Scene**: Turn-by-turn directions and confirmation prompts
+- **Camera Scene**: Camera capture with permission flow and haptics
+
+To run the example app:
+
+```bash
+cd Example
+tuist generate --no-open
+open IsleDemo.xcworkspace
+```
+
+Then select an iOS 17+ simulator and run.
+
+### API Reference
 
 - `Isle.Configuration`: presentation, content, timing, swipe, and haptic options
-- `Isle.Content`: built-in text/image content and custom slot views
-- `IsleNotificationCenter`: imperative UIKit-style presentation API
-- `View.isleNotification(...)`: declarative SwiftUI API
+- `Isle.Content`: built-in text/image content, activity indicator, and custom slot views
+- `IsleNotificationCenter`: imperative UIKit-style notification presentation API
+- `IsleCameraCenter`: camera panel presentation with permission flow
+- `View.isleNotification(...)`: declarative SwiftUI notification API
+- `View.isleCamera(...)`: SwiftUI camera binding modifier
+- `IsleMarqueeView`: auto-scrolling text for compact notification slots
 - `HostingView`: bridge for embedding SwiftUI content inside Isle slots
 
 To build docs locally in Xcode, select the package and choose **Product > Build Documentation**.
@@ -293,11 +412,11 @@ Good first contributions include:
 
 ## Roadmap Ideas
 
-- Example app target
 - More built-in presets
 - DocC tutorial pages
 - Snapshot tests for major device families
 - Configurable animation timing
+- Additional example app scenes
 
 ## License
 

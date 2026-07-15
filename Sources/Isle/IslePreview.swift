@@ -66,6 +66,7 @@ struct DemoFeedView: View {
 final class IslePreviewHost: UIViewController {
 
     private let configuration: Isle.Configuration
+    private var token: IsleToken?
 
     init(configuration: Isle.Configuration) {
         self.configuration = configuration
@@ -91,36 +92,164 @@ final class IslePreviewHost: UIViewController {
         presentNotification()
     }
 
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        token?.dismiss()
+        token = nil
+    }
+
     /// Places the notification exactly as `IsleNotificationCenter` does
     /// (top pinned at the island so the shape contains it) and runs the present
     /// animation once. Refresh the canvas to replay.
     private func presentNotification() {
-        // Read the canvas device's real safe area so the preview respects notch (top
-        // inset 0) vs island (top inset 11) — matching what the app's Center does.
-        let topInset = view.safeAreaInsets.top
-        let notification = IsleView(configuration: configuration, topSafeAreaInset: topInset)
-        view.addSubview(notification)
-        NSLayoutConstraint.activate([
-            notification.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            notification.topAnchor.constraint(
-                equalTo: view.topAnchor,
-                constant: Isle.Metrics.shapeTopOffset(topSafeAreaInset: topInset)),
-            notification.leadingAnchor.constraint(
-                greaterThanOrEqualTo: view.leadingAnchor,
-                constant: Isle.Metrics.sideInset),
-            notification.trailingAnchor.constraint(
-                lessThanOrEqualTo: view.trailingAnchor,
-                constant: -Isle.Metrics.sideInset)
-        ])
-        view.layoutIfNeeded()
-
-        notification.prepareForPresentation()
-        notification.animateIn()
+        token = IsleNotificationCenter.shared.show(configuration, behavior: .replace)
 
         // Hide the status bar (time/battery) while the notification is up.
         isNotificationVisible = true
         UIView.animate(withDuration: 0.3) { self.setNeedsStatusBarAppearanceUpdate() }
     }
+}
+
+/// Preview harness for the camera panel. It intentionally skips starting an
+/// `AVCaptureSession`, so the canvas can render the rounded camera surface
+/// without hardware access or permission prompts.
+final class IsleCameraPreviewHost: UIViewController {
+
+    private var isCameraVisible = false
+    override var prefersStatusBarHidden: Bool { isCameraVisible }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        let backdrop = HostingView(customView: DemoFeedView())
+        backdrop.frame = view.bounds
+        backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(backdrop)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        presentCamera()
+    }
+
+    private func presentCamera() {
+        let topInset = view.safeAreaInsets.top
+        var camera: IsleCameraView!
+        camera = IsleCameraView(
+            configuration: .init(),
+            topSafeAreaInset: topInset,
+            configuresSession: false,
+            onCapture: { _ in },
+            onDismiss: { [weak self] in
+                guard let self else { return }
+                camera.animateOut {
+                    camera.removeFromSuperview()
+                    self.isCameraVisible = false
+                    UIView.animate(withDuration: 0.2) {
+                        self.setNeedsStatusBarAppearanceUpdate()
+                    }
+                }
+            },
+            onError: { _ in }
+        )
+        view.addSubview(camera)
+        NSLayoutConstraint.activate([
+            camera.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            camera.topAnchor.constraint(
+                equalTo: view.topAnchor,
+                constant: Isle.Metrics.shapeTopOffset(topSafeAreaInset: topInset)),
+            camera.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Isle.Metrics.sideInset),
+            camera.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -Isle.Metrics.sideInset),
+            camera.heightAnchor.constraint(equalToConstant: Isle.Metrics.cameraHeight(for: view.bounds.height))
+        ])
+        view.layoutIfNeeded()
+
+        let gradient = CAGradientLayer()
+        gradient.colors = [
+            UIColor(red: 0.10, green: 0.12, blue: 0.14, alpha: 1).cgColor,
+            UIColor(red: 0.24, green: 0.29, blue: 0.31, alpha: 1).cgColor
+        ]
+        gradient.startPoint = CGPoint(x: 0.15, y: 0)
+        gradient.endPoint = CGPoint(x: 0.85, y: 1)
+        gradient.frame = camera.bounds
+        camera.layer.insertSublayer(gradient, at: 0)
+
+        camera.prepareForPresentation()
+        camera.animateIn()
+
+        isCameraVisible = true
+        UIView.animate(withDuration: 0.3) { self.setNeedsStatusBarAppearanceUpdate() }
+    }
+}
+
+final class IsleTimerPreviewView: UIStackView {
+
+    private let imageView = UIImageView(image: UIImage(systemName: "timer"))
+    private let label = UILabel()
+    private var elapsedSeconds = 12
+    private var timer: Timer?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configure()
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        timer?.invalidate()
+    }
+
+    private func configure() {
+        axis = .horizontal
+        alignment = .center
+        spacing = 7
+        isLayoutMarginsRelativeArrangement = false
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        imageView.tintColor = IsleColors.onBackground
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: 22),
+            imageView.heightAnchor.constraint(equalTo: imageView.widthAnchor)
+        ])
+
+        label.textColor = IsleColors.onBackground
+        label.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        updateLabel()
+
+        addArrangedSubview(imageView)
+        addArrangedSubview(label)
+
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            elapsedSeconds += 1
+            updateLabel()
+        }
+    }
+
+    private func updateLabel() {
+        label.text = String(format: "%d:%02d", elapsedSeconds / 60, elapsedSeconds % 60)
+    }
+}
+
+final class IsleRecordingPreviewLabel: UILabel {
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        text = "REC"
+        textColor = IsleColors.onBackground
+        font = .systemFont(ofSize: 13, weight: .semibold)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 @available(iOS 17.0, *)
@@ -154,10 +283,27 @@ final class IslePreviewHost: UIViewController {
     IslePreviewHost(configuration: .init(
         presentation: .compactWrap,
         content: .init(
-            leadingImage: UIImage(systemName: "timer"),
-            leadingImageTintColor: IsleColors.onBackground,
-            title: "0:12",
-            trailingAccessory: .text("REC")
+            leadingView: IsleTimerPreviewView(),
+            trailingView: IsleRecordingPreviewLabel()
+        ),
+        autoDismissAfter: nil))
+}
+
+@available(iOS 17.0, *)
+#Preview("Compact Wrap — Marquee") {
+    IslePreviewHost(configuration: .init(
+        presentation: .compactWrap,
+        content: .init(
+            trailingAccessory: .text("REC"),
+            leadingView: {
+                let marquee = IsleMarqueeView(
+                    text: "Now Playing: Long Song Title That Scrolls",
+                    style: .init(font: .monospacedDigitSystemFont(ofSize: 15, weight: .semibold))
+                )
+                marquee.maxWidth = Isle.Metrics.compactWrapTextMaxWidth
+                marquee.setContentHuggingPriority(.required, for: .horizontal)
+                return marquee
+            }()
         ),
         autoDismissAfter: nil))
 }
@@ -172,12 +318,32 @@ final class IslePreviewHost: UIViewController {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)
         }
+        .fixedSize()
     )
     IslePreviewHost(configuration: .init(
         presentation: .compactPill,
         content: .init(centerView: swiftUICenter),
         autoDismissAfter: nil))
 }
+
+@available(iOS 17.0, *)
+#Preview("Confirmation — Camera Access") {
+    let confirmation = Isle.makeConfirmationView(
+        title: "Camera Access",
+        message: "Allow Isle to open the camera?",
+        confirmTitle: "OK",
+        cancelTitle: "Cancel",
+        onConfirm: {},
+        onCancel: {}
+    )
+    IslePreviewHost(configuration: .init(
+        presentation: .expanded,
+        content: .init(centerView: confirmation),
+        autoDismissAfter: nil))
+}
+
+@available(iOS 17.0, *)
+#Preview("Camera") { IsleCameraPreviewHost() }
 
 @available(iOS 17.0, *)
 #Preview("SwiftUI — tap a cell") { DemoFeedView() }
