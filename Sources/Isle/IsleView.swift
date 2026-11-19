@@ -50,11 +50,10 @@ public final class IsleView: UIView {
     private func configureContainer() {
         backgroundColor = IsleColors.background
         layer.masksToBounds = true
-        let isIsland = Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .dynamicIsland
         layer.cornerRadius = configuration.presentation == .expanded
             ? Isle.Metrics.expandedCornerRadius
-            : (isIsland ? Isle.Metrics.compactCornerRadius
-                : Isle.Metrics.screenCornerRadius(topSafeAreaInset: topSafeAreaInset))
+            : Isle.Metrics.compactShapeCornerRadius(topSafeAreaInset: topSafeAreaInset)
+        layer.cornerCurve = .continuous
         // The notch sits flush with the screen's top edge, so round only the bottom
         // corners (a square top hugs the top edge). The island floats, so round all four.
         if Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .notch {
@@ -218,7 +217,7 @@ public final class IsleView: UIView {
     private func buildCompactWrap() {
         let insets = Isle.Metrics.contentInsets
         let halfGap = Isle.Metrics.cutoutWidth(topSafeAreaInset: topSafeAreaInset) / 2
-        let usesSnugIslandWidth = Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .dynamicIsland
+        let usesSnugIslandWidth = Isle.Metrics.usesSnugCompactWidth(topSafeAreaInset: topSafeAreaInset)
 
         // Leading content sits to the LEFT of a gap centered on the island; trailing
         // content to the RIGHT. The gap is defined relative to the view's centerX (which
@@ -245,7 +244,7 @@ public final class IsleView: UIView {
         var constraints: [NSLayoutConstraint] = [
             leading.centerYAnchor.constraint(equalTo: centerYAnchor),
             leading.trailingAnchor.constraint(equalTo: centerXAnchor, constant: -halfGap),
-            heightAnchor.constraint(equalToConstant: Isle.Metrics.cutoutHeight(topSafeAreaInset: topSafeAreaInset) + 10)
+            heightAnchor.constraint(equalToConstant: Isle.Metrics.cutoutHeight(topSafeAreaInset: topSafeAreaInset) + Isle.Metrics.compactVerticalPadding)
         ]
         // Width is deferred when using snug island layout — the expensive
         // systemLayoutSizeFitting measurements are applied later so the
@@ -267,10 +266,11 @@ public final class IsleView: UIView {
     }
 
     /// Measures the leading/trailing content and applies the snug width constraint for
-    /// `.compactWrap` on Dynamic Island devices. Called after the animation starts so
-    /// the expensive layout measurement doesn't block the main thread during presentation.
+    /// `.compactWrap` around the Dynamic Island and on flat-top screens. Called after the
+    /// animation starts so the expensive layout measurement doesn't block the main
+    /// thread during presentation.
     func applyDeferredCompactWrapWidth() {
-        guard Isle.Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) == .dynamicIsland else { return }
+        guard Isle.Metrics.usesSnugCompactWidth(topSafeAreaInset: topSafeAreaInset) else { return }
         let insets = Isle.Metrics.contentInsets
         let halfGap = Isle.Metrics.cutoutWidth(topSafeAreaInset: topSafeAreaInset) / 2
         guard let leading = compactWrapLeadingView else { return }
@@ -281,7 +281,10 @@ public final class IsleView: UIView {
         let sideWidth = max(leadingWidth, trailingWidth)
         let snugWidth = insets.left + sideWidth + (halfGap * 2) + sideWidth + insets.right
         let edgeInset = Isle.Metrics.compactWrapEdgeInset(topSafeAreaInset: topSafeAreaInset)
-        let availableWidth = superview?.bounds.width ?? window?.bounds.width ?? 0
+        // The safe area keeps the shape off a side strip (the vertical bar of a foldable).
+        let container = superview ?? window
+        let availableWidth = (container?.bounds.width ?? 0)
+            - (container?.safeAreaInsets.left ?? 0) - (container?.safeAreaInsets.right ?? 0)
         let minimumWidth = insets.left + (halfGap * 2) + insets.right
         let maximumWidth = availableWidth > 0
             ? max(minimumWidth, availableWidth - (edgeInset * 2))
