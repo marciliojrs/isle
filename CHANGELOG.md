@@ -4,6 +4,19 @@ All notable changes to Isle will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses semantic versioning.
 
+## 1.2.0
+
+### Added
+
+- `Configuration.hidesStatusBar` (default `true`). Pass `false` to keep the time and battery visible beside a notification that stays up.
+
+### Changed
+
+- On screens without a top cutout (iPhone SE, iPad, landscape, foldables with a vertical bar), compact notifications float as a snug capsule instead of a full-width bar, centred in the safe area so a side strip stays clear.
+- `Isle.hasTopCutout(topSafeAreaInset:)` and `Isle.compactNotificationBottom(topSafeAreaInset:hidesStatusBar:)`, so an app that keeps a compact notification up can keep its content clear of it on a flat top.
+- On a flat top that keeps its status bar (`hidesStatusBar: false`), compact notifications float just below it.
+- The status bar hides only when it sits at the top of the screen; with a zero top inset it is in a side strip (or hidden by the system), and hiding it would only lose the time.
+
 ## 1.1.0
 
 ### Added

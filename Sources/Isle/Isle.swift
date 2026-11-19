@@ -97,6 +97,10 @@ public enum Isle {
         public var allowsSwipeToDismiss: Bool
         /// Impact haptic played when the notification is presented. `nil` plays no haptic.
         public var haptic: UIImpactFeedbackGenerator.FeedbackStyle?
+        /// Hides the status bar (time, battery) while the notification is visible.
+        /// Turn it off for a notification that stays up, such as a status that lasts
+        /// for hours, so the time and battery stay readable beside it.
+        public var hidesStatusBar: Bool
 
         public init(
             id: String? = nil,
@@ -104,7 +108,8 @@ public enum Isle {
             content: Content,
             autoDismissAfter: TimeInterval? = 3,
             allowsSwipeToDismiss: Bool = true,
-            haptic: UIImpactFeedbackGenerator.FeedbackStyle? = .soft
+            haptic: UIImpactFeedbackGenerator.FeedbackStyle? = .soft,
+            hidesStatusBar: Bool = true
         ) {
             self.id = id
             self.presentation = presentation
@@ -112,7 +117,25 @@ public enum Isle {
             self.autoDismissAfter = autoDismissAfter
             self.allowsSwipeToDismiss = allowsSwipeToDismiss
             self.haptic = haptic
+            self.hidesStatusBar = hidesStatusBar
         }
+    }
+
+    /// True when the screen has a cutout at the top (Dynamic Island or notch) that
+    /// compact notifications wrap; false on a flat top (iPhone SE, iPad, landscape,
+    /// foldables with a vertical bar), where they float as a capsule.
+    public static func hasTopCutout(topSafeAreaInset: CGFloat) -> Bool {
+        Metrics.cutoutKind(topSafeAreaInset: topSafeAreaInset) != .none
+    }
+
+    /// How far down from the screen's top a `.compactWrap` or `.compactPill`
+    /// notification reaches. An app that keeps one up for long can keep its own
+    /// content clear of it on a flat top, where nothing else reserves that space.
+    public static func compactNotificationBottom(topSafeAreaInset: CGFloat, hidesStatusBar: Bool) -> CGFloat {
+        let keepsStatusBar = !hidesStatusBar || topSafeAreaInset == 0
+        return Metrics.shapeTopOffset(topSafeAreaInset: topSafeAreaInset, keepsStatusBar: keepsStatusBar)
+            + Metrics.cutoutHeight(topSafeAreaInset: topSafeAreaInset)
+            + Metrics.compactVerticalPadding
     }
 
     /// Everything needed to present Isle's camera overlay.
@@ -237,11 +260,17 @@ extension Isle {
         /// floats ~11pt down and the notch is flush with the top (0). Flat-top devices
         /// (no cutout) float at the same inset as the island so the notification reads as
         /// a floating pill near the top rather than pinned to the edge.
-        static func shapeTopOffset(topSafeAreaInset: CGFloat) -> CGFloat {
+        /// On a flat top whose status bar stays visible, the shape floats this far below it.
+        static let belowStatusBarGap: CGFloat = 6
+
+        static func shapeTopOffset(topSafeAreaInset: CGFloat, keepsStatusBar: Bool = false) -> CGFloat {
             switch cutoutKind(topSafeAreaInset: topSafeAreaInset) {
             case .dynamicIsland: return islandTopInset
             case .notch: return notchTopInset
-            case .none: return islandTopInset
+            case .none:
+                return keepsStatusBar && topSafeAreaInset > 0
+                    ? topSafeAreaInset + belowStatusBarGap
+                    : islandTopInset
             }
         }
 
@@ -261,6 +290,32 @@ extension Isle {
             case .dynamicIsland: return islandHeight
             case .notch, .none: return notchHeight
             }
+        }
+
+        /// Compact shapes hug their content except on a notch, where the bar spans the
+        /// top edge it is flush with: around the island, and floating on a flat top.
+        static func usesSnugCompactWidth(topSafeAreaInset: CGFloat) -> Bool {
+            cutoutKind(topSafeAreaInset: topSafeAreaInset) != .notch
+        }
+
+        /// Corner radius of a compact shape: the island's pill, the screen's corner on
+        /// a notch, and a full capsule floating on a flat top.
+        static func compactShapeCornerRadius(topSafeAreaInset: CGFloat) -> CGFloat {
+            switch cutoutKind(topSafeAreaInset: topSafeAreaInset) {
+            case .dynamicIsland: return compactCornerRadius
+            case .notch: return screenCornerRadius(topSafeAreaInset: topSafeAreaInset)
+            case .none: return (cutoutHeight(topSafeAreaInset: topSafeAreaInset) + compactVerticalPadding) / 2
+            }
+        }
+
+        /// Extra height of the compact one-liner over the cutout it wraps.
+        static let compactVerticalPadding: CGFloat = 10
+
+        /// The status bar hides only where it sits at the top, under the notification.
+        /// A zero top inset means it is elsewhere (the side strip of a vertical bar, or
+        /// hidden by the system in landscape), so hiding it would only lose the time.
+        static func hidesStatusBar(_ configuration: Isle.Configuration, topSafeAreaInset: CGFloat) -> Bool {
+            configuration.hidesStatusBar && topSafeAreaInset > 0
         }
 
         static func cameraHeight(for windowHeight: CGFloat) -> CGFloat {

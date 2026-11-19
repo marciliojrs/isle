@@ -15,6 +15,14 @@ struct IsleConfigurationTests {
         #expect(config.id == nil)
         #expect(config.autoDismissAfter == 3)
         #expect(config.allowsSwipeToDismiss == true)
+        #expect(config.hidesStatusBar == true)
+    }
+
+    @Test("The overlay keeps the status bar when the configuration asks to")
+    @MainActor
+    func overlayRootControllerStatusBar() {
+        #expect(OverlayRootController(hidesStatusBar: true).prefersStatusBarHidden == true)
+        #expect(OverlayRootController(hidesStatusBar: false).prefersStatusBarHidden == false)
     }
 
     @Test("Configuration accepts a stable identifier for repeat detection")
@@ -80,6 +88,53 @@ struct IsleMetricsTests {
     func cameraHeight() {
         #expect(Isle.Metrics.cameraHeight(for: 800) == 400)
         #expect(Isle.Metrics.cameraHeight(for: 500) == 320)
+    }
+
+    @Test("Compact shapes hug their content except on a notch")
+    func snugCompactWidth() {
+        #expect(Isle.Metrics.usesSnugCompactWidth(topSafeAreaInset: 59) == true)
+        #expect(Isle.Metrics.usesSnugCompactWidth(topSafeAreaInset: 47) == false)
+        #expect(Isle.Metrics.usesSnugCompactWidth(topSafeAreaInset: 20) == true)
+        #expect(Isle.Metrics.usesSnugCompactWidth(topSafeAreaInset: 0) == true)
+    }
+
+    @Test("A compact shape on a flat top is a full capsule")
+    func flatTopCapsule() {
+        let height = Isle.Metrics.cutoutHeight(topSafeAreaInset: 0) + Isle.Metrics.compactVerticalPadding
+        #expect(Isle.Metrics.compactShapeCornerRadius(topSafeAreaInset: 0) == height / 2)
+        #expect(Isle.Metrics.compactShapeCornerRadius(topSafeAreaInset: 59) == Isle.Metrics.compactCornerRadius)
+    }
+
+    @Test("On a flat top that keeps its status bar, the shape floats below it")
+    func flatTopBelowStatusBar() {
+        #expect(Isle.Metrics.shapeTopOffset(topSafeAreaInset: 20, keepsStatusBar: true) == 26)
+        #expect(Isle.Metrics.shapeTopOffset(topSafeAreaInset: 20, keepsStatusBar: false) == Isle.Metrics.islandTopInset)
+        #expect(Isle.Metrics.shapeTopOffset(topSafeAreaInset: 0, keepsStatusBar: true) == Isle.Metrics.islandTopInset)
+        #expect(Isle.Metrics.shapeTopOffset(topSafeAreaInset: 59, keepsStatusBar: true) == Isle.Metrics.islandTopInset)
+    }
+
+    @Test("The public cutout and bottom helpers match the layout")
+    func publicGeometry() {
+        #expect(Isle.hasTopCutout(topSafeAreaInset: 59) == true)
+        #expect(Isle.hasTopCutout(topSafeAreaInset: 47) == true)
+        #expect(Isle.hasTopCutout(topSafeAreaInset: 20) == false)
+        #expect(Isle.hasTopCutout(topSafeAreaInset: 0) == false)
+        // Vertical bar: no status bar at the top, the capsule floats at the island inset.
+        #expect(Isle.compactNotificationBottom(topSafeAreaInset: 0, hidesStatusBar: true) == 54)
+        // iPhone SE keeping its status bar: below it.
+        #expect(Isle.compactNotificationBottom(topSafeAreaInset: 20, hidesStatusBar: false) == 69)
+    }
+
+    @Test("The status bar hides only when it sits at the top")
+    @MainActor
+    func statusBarHidesOnlyAtTheTop() {
+        let hiding = Isle.Configuration(presentation: .compactPill, content: .init(title: "Hi"))
+        let keeping = Isle.Configuration(presentation: .compactPill, content: .init(title: "Hi"), hidesStatusBar: false)
+        #expect(Isle.Metrics.hidesStatusBar(hiding, topSafeAreaInset: 59) == true)
+        #expect(Isle.Metrics.hidesStatusBar(hiding, topSafeAreaInset: 20) == true)
+        // A vertical bar (foldable) or landscape: the status bar is not at the top.
+        #expect(Isle.Metrics.hidesStatusBar(hiding, topSafeAreaInset: 0) == false)
+        #expect(Isle.Metrics.hidesStatusBar(keeping, topSafeAreaInset: 59) == false)
     }
 }
 
@@ -197,6 +252,31 @@ struct IsleViewTests {
         )
         let size = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         #expect(size.width < 320)
+    }
+
+    @Test("Compact wrap stays snug on flat-top screens")
+    func compactWrapSnugOnFlatTop() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 466, height: 678))
+        let view = IsleView(
+            configuration: .init(
+                presentation: .compactWrap,
+                content: .init(
+                    leadingImage: UIImage(systemName: "moon.fill"),
+                    trailingAccessory: .text("18:59")
+                )
+            ),
+            topSafeAreaInset: 0
+        )
+        window.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.centerXAnchor.constraint(equalTo: window.centerXAnchor),
+            view.topAnchor.constraint(equalTo: window.topAnchor, constant: 11)
+        ])
+        window.layoutIfNeeded()
+        view.applyDeferredCompactWrapWidth()
+        window.layoutIfNeeded()
+        #expect(view.bounds.width < 200)
+        #expect(view.layer.cornerRadius == view.bounds.height / 2)
     }
 
     @Test("Compact wrap timer width fits content on Dynamic Island devices")
@@ -355,8 +435,8 @@ struct IsleViewTests {
             configuration: .init(
                 presentation: .compactWrap,
                 content: .init(
-                    leadingView: leading,
-                    trailingAccessory: .text("REC")
+                    trailingAccessory: .text("REC"),
+                    leadingView: leading
                 )
             ),
             topSafeAreaInset: 59

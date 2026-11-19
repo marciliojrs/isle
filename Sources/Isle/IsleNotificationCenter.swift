@@ -153,8 +153,10 @@ public final class IsleNotificationCenter {
         let window = PassthroughWindow(windowScene: scene)
         window.windowLevel = .statusBar + 1
         window.backgroundColor = .clear
-        // Root VC hides the status bar (time/battery) while the notification is up.
-        window.rootViewController = StatusBarHiddenController()
+        // The root VC decides whether the status bar (time/battery) hides while the
+        // notification is up.
+        let hidesStatusBar = Isle.Metrics.hidesStatusBar(configuration, topSafeAreaInset: topInset)
+        window.rootViewController = OverlayRootController(hidesStatusBar: hidesStatusBar)
         window.isHidden = false
         self.window = window
 
@@ -166,13 +168,18 @@ public final class IsleNotificationCenter {
         // down; the notch is flush with the top) and contains it — the view insets its
         // content below the cutout via the injected safe-area inset — so the island/notch
         // reads as the top of the notification, like the system.
-        let topOffset = Isle.Metrics.shapeTopOffset(topSafeAreaInset: topInset)
+        let topOffset = Isle.Metrics.shapeTopOffset(topSafeAreaInset: topInset, keepsStatusBar: !hidesStatusBar)
         let sideInset = Isle.Metrics.sideInset
+        // A cutout pins the shape to the screen's centre. With none, it centres in the
+        // safe area instead, so a side strip (the vertical bar of a foldable) stays clear.
+        let horizontalGuide: UILayoutGuide? = Isle.Metrics.cutoutKind(topSafeAreaInset: topInset) == .none
+            ? window.safeAreaLayoutGuide
+            : nil
         NSLayoutConstraint.activate([
-            view.centerXAnchor.constraint(equalTo: window.centerXAnchor),
+            view.centerXAnchor.constraint(equalTo: horizontalGuide?.centerXAnchor ?? window.centerXAnchor),
             view.topAnchor.constraint(equalTo: window.topAnchor, constant: topOffset),
-            view.leadingAnchor.constraint(greaterThanOrEqualTo: window.leadingAnchor, constant: sideInset),
-            view.trailingAnchor.constraint(lessThanOrEqualTo: window.trailingAnchor, constant: -sideInset)
+            view.leadingAnchor.constraint(greaterThanOrEqualTo: horizontalGuide?.leadingAnchor ?? window.leadingAnchor, constant: sideInset),
+            view.trailingAnchor.constraint(lessThanOrEqualTo: horizontalGuide?.trailingAnchor ?? window.trailingAnchor, constant: -sideInset)
         ])
         self.currentView = view
 
@@ -406,10 +413,23 @@ private final class PassthroughWindow: UIWindow {
 }
 
 /// Root controller for the overlay window whose only job is to hide the status bar
-/// (time/battery) while the notification is presented. Its view is transparent and
-/// non-interactive so touches still fall through via `PassthroughWindow.hitTest`.
-private final class StatusBarHiddenController: UIViewController {
-    override var prefersStatusBarHidden: Bool { true }
+/// (time/battery) while the notification is presented, unless the configuration asks
+/// to keep it. Its view is transparent and non-interactive so touches still fall
+/// through via `PassthroughWindow.hitTest`.
+final class OverlayRootController: UIViewController {
+    private let hidesStatusBar: Bool
+
+    init(hidesStatusBar: Bool) {
+        self.hidesStatusBar = hidesStatusBar
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var prefersStatusBarHidden: Bool { hidesStatusBar }
 
     override func loadView() {
         let container = UIView()
