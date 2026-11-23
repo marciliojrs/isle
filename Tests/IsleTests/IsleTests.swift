@@ -197,12 +197,16 @@ struct IsleViewTests {
         root === target || root.subviews.contains { contains($0, target) }
     }
 
-    private func resolveStyle(_ style: UIUserInterfaceStyle, for view: UIView) {
-        let parent = UIViewController()
-        parent.overrideUserInterfaceStyle = style
-        parent.view.addSubview(view)
+    /// Off screen, views don't pick up their ancestors' traits: put the view
+    /// in a window with the style. Keep the window alive while asserting.
+    private func resolveStyle(_ style: UIUserInterfaceStyle, for view: UIView) -> UIWindow {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.overrideUserInterfaceStyle = style
+        window.addSubview(view)
+        window.isHidden = false
         view.frame = CGRect(x: 0, y: 0, width: 240, height: 80)
         view.layoutIfNeeded()
+        return window
     }
 
     @Test("Custom leading/center/trailing views are used in the expanded layout")
@@ -378,14 +382,16 @@ struct IsleViewTests {
 
         parent.layoutIfNeeded()
         view.applyDeferredCompactWrapWidth()
+        // Off screen, a new constraint alone doesn't trigger another pass.
+        parent.setNeedsLayout()
         parent.layoutIfNeeded()
 
         let maximumWidth = parent.bounds.width - (Isle.Metrics.compactWrapEdgeInset(topSafeAreaInset: 59) * 2)
         #expect(view.bounds.width <= maximumWidth + 0.5)
     }
 
-    @Test("Compact wrap long built-in text stays close to island width")
-    func compactWrapLongBuiltInTextStaysCloseToIslandWidth() {
+    @Test("Compact wrap long built-in text stays inside device corner on Dynamic Island devices")
+    func compactWrapLongBuiltInTextStaysInsideDeviceCorner() {
         let view = IsleView(
             configuration: .init(
                 presentation: .compactWrap,
@@ -407,9 +413,14 @@ struct IsleViewTests {
 
         parent.layoutIfNeeded()
         view.applyDeferredCompactWrapWidth()
+        // Off screen, a new constraint alone doesn't trigger another pass.
+        parent.setNeedsLayout()
         parent.layoutIfNeeded()
 
-        #expect(view.bounds.width <= 270)
+        // Both sides take the capped text width around the island, which on a
+        // 393pt screen reaches the device corner limit.
+        let maximumWidth = parent.bounds.width - (Isle.Metrics.compactWrapEdgeInset(topSafeAreaInset: 59) * 2)
+        #expect(view.bounds.width <= maximumWidth + 0.5)
     }
 
     @Test("Marquee lays out overflowing text at full text width")
@@ -477,7 +488,8 @@ struct IsleViewTests {
     @Test("Notification container shows a light border in dark mode")
     func notificationBorderInDarkMode() {
         let view = makeView(.expanded)
-        resolveStyle(.dark, for: view)
+        let window = resolveStyle(.dark, for: view)
+        defer { window.isHidden = true }
         view.traitCollectionDidChange(nil)
 
         #expect(view.layer.borderWidth > 0)
@@ -487,7 +499,8 @@ struct IsleViewTests {
     @Test("Notification container has no border in light mode")
     func notificationBorderInLightMode() {
         let view = makeView(.expanded)
-        resolveStyle(.light, for: view)
+        let window = resolveStyle(.light, for: view)
+        defer { window.isHidden = true }
         view.traitCollectionDidChange(nil)
 
         #expect(view.layer.borderWidth == 0)
@@ -575,12 +588,16 @@ struct IsleCameraViewTests {
         )
     }
 
-    private func resolveStyle(_ style: UIUserInterfaceStyle, for view: UIView) {
-        let parent = UIViewController()
-        parent.overrideUserInterfaceStyle = style
-        parent.view.addSubview(view)
+    /// Off screen, views don't pick up their ancestors' traits: put the view
+    /// in a window with the style. Keep the window alive while asserting.
+    private func resolveStyle(_ style: UIUserInterfaceStyle, for view: UIView) -> UIWindow {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.overrideUserInterfaceStyle = style
+        window.addSubview(view)
+        window.isHidden = false
         view.frame = CGRect(x: 0, y: 0, width: 320, height: 360)
         view.layoutIfNeeded()
+        return window
     }
 
     @Test("Camera view uses camera corner radius and black background")
@@ -647,7 +664,8 @@ struct IsleCameraViewTests {
     @Test("Camera container shows a light border in dark mode")
     func cameraBorderInDarkMode() {
         let view = makeView()
-        resolveStyle(.dark, for: view)
+        let window = resolveStyle(.dark, for: view)
+        defer { window.isHidden = true }
         view.traitCollectionDidChange(nil)
 
         #expect(view.layer.borderWidth > 0)
@@ -657,7 +675,8 @@ struct IsleCameraViewTests {
     @Test("Camera container has no border in light mode")
     func cameraBorderInLightMode() {
         let view = makeView()
-        resolveStyle(.light, for: view)
+        let window = resolveStyle(.light, for: view)
+        defer { window.isHidden = true }
         view.traitCollectionDidChange(nil)
 
         #expect(view.layer.borderWidth == 0)

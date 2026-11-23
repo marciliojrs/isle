@@ -178,7 +178,7 @@ public final class IsleCameraView: UIView {
         }
     }
 
-    @objc private func capturePhoto() {
+    private func capturePhoto() {
         if let style = configuration.captureHaptic {
             UIImpactFeedbackGenerator(style: style).impactOccurred()
         }
@@ -203,7 +203,7 @@ public final class IsleCameraView: UIView {
         photoOutput.capturePhoto(with: settings, delegate: delegate)
     }
 
-    @objc private func close() {
+    private func close() {
         onDismiss()
     }
 
@@ -215,7 +215,7 @@ public final class IsleCameraView: UIView {
         button.layer.borderWidth = 4
         button.translatesAutoresizingMaskIntoConstraints = false
         button.accessibilityLabel = "Take Photo"
-        button.addTarget(self, action: #selector(capturePhoto), for: .touchUpInside)
+        button.addAction(UIAction { [weak self] _ in self?.capturePhoto() }, for: .touchUpInside)
         return button
     }
 
@@ -229,7 +229,7 @@ public final class IsleCameraView: UIView {
         let button = UIButton(configuration: configuration)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.accessibilityLabel = "Close Camera"
-        button.addTarget(self, action: #selector(close), for: .touchUpInside)
+        button.addAction(UIAction { [weak self] _ in self?.close() }, for: .touchUpInside)
         return button
     }
 
